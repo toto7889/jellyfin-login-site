@@ -15,10 +15,42 @@ export type JellyfinSession = {
   deviceId: string
 }
 
+export type MediaStream = {
+  Index: number
+  Type: "Video" | "Audio" | "Subtitle" | string
+  Codec?: string
+  Language?: string
+  DisplayTitle?: string
+  Title?: string
+  IsDefault?: boolean
+  IsForced?: boolean
+  IsExternal?: boolean
+  SupportsExternalStream?: boolean
+  Channels?: number
+  BitRate?: number
+  Height?: number
+  Width?: number
+}
+
+export type MediaSource = {
+  Id: string
+  Name?: string
+  Container?: string
+  Size?: number
+  Bitrate?: number
+  MediaStreams?: MediaStream[]
+  SupportsTranscoding?: boolean
+  SupportsDirectStream?: boolean
+  SupportsDirectPlay?: boolean
+  TranscodingUrl?: string
+}
+
 export type BaseItem = {
   Id: string
   Name: string
   Type: string
+  MediaSources?: MediaSource[]
+  MediaStreams?: MediaStream[]
   Overview?: string
   ProductionYear?: number
   CommunityRating?: number
@@ -266,7 +298,7 @@ export async function getItem(
   itemId: string,
 ): Promise<BaseItem> {
   const params = new URLSearchParams({
-    Fields: "People,Genres,Overview,Studios,Taglines",
+    Fields: "People,Genres,Overview,Studios,Taglines,MediaSources,MediaStreams",
   })
   return apiFetch<BaseItem>(
     session,
@@ -396,11 +428,15 @@ export async function getLiveTvPrograms(
 // ---- Playback ----
 
 // Returns an HLS master playlist URL that hls.js can play in any browser.
-export function streamUrl(session: JellyfinSession, itemId: string): string {
+export function streamUrl(
+  session: JellyfinSession,
+  itemId: string,
+  options: { mediaSourceId?: string; audioStreamIndex?: number; subtitleStreamIndex?: number; maxVideoBitrate?: number } = {},
+): string {
   const params = new URLSearchParams({
     api_key: session.accessToken,
     DeviceId: session.deviceId,
-    MediaSourceId: itemId,
+    MediaSourceId: options.mediaSourceId ?? itemId,
     VideoCodec: "h264",
     AudioCodec: "aac,mp3",
     TranscodingMaxAudioChannels: "2",
@@ -413,6 +449,9 @@ export function streamUrl(session: JellyfinSession, itemId: string): string {
     AllowVideoStreamCopy: "false",
     RequireNonEmptyMetadata: "false",
   })
+  if (options.audioStreamIndex !== undefined) params.set("AudioStreamIndex", String(options.audioStreamIndex))
+  if (options.subtitleStreamIndex !== undefined) params.set("SubtitleStreamIndex", String(options.subtitleStreamIndex))
+  if (options.maxVideoBitrate) params.set("MaxVideoBitrate", String(options.maxVideoBitrate))
   return `${session.serverUrl}/Videos/${itemId}/master.m3u8?${params.toString()}`
 }
 
