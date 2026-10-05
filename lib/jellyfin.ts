@@ -34,6 +34,9 @@ export type BaseItem = {
   IndexNumber?: number
   ParentIndexNumber?: number
   Genres?: string[]
+  OriginalLanguage?: string
+  Language?: string
+  ProductionLocations?: string[]
   UserData?: {
     PlaybackPositionTicks?: number
     PlayedPercentage?: number

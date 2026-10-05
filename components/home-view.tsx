@@ -145,17 +145,11 @@ function Hero({ item, session }: { item: BaseItem; session: JellyfinSession }) {
           </p>
         ) : null}
         <div className="flex items-center gap-3">
-          <Button asChild size="lg">
-            <Link href={`/item/${item.Id}`}>
-              <Play className="size-4 fill-current" />
-              {item.UserData?.PlaybackPositionTicks
-                ? "Reprendre"
-                : "Lire"}
-            </Link>
-          </Button>
-          <Button asChild variant="secondary" size="lg">
-            <Link href={`/item/${item.Id}`}>Détails</Link>
-          </Button>
+          <Link href={`/item/${item.Id}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">
+            <Play className="size-4 fill-current" />
+            {item.UserData?.PlaybackPositionTicks ? "Reprendre" : "Lire"}
+          </Link>
+          <Link href={`/item/${item.Id}`} className="inline-flex h-10 items-center justify-center rounded-md bg-secondary px-6 text-sm font-medium text-secondary-foreground shadow-sm transition-colors hover:bg-secondary/80">Détails</Link>
         </div>
       </div>
     </section>
