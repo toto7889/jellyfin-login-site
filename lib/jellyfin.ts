@@ -34,6 +34,9 @@ export type BaseItem = {
   IndexNumber?: number
   ParentIndexNumber?: number
   Genres?: string[]
+  OriginalLanguage?: string
+  Language?: string
+  ProductionLocations?: string[]
   UserData?: {
     PlaybackPositionTicks?: number
     PlayedPercentage?: number
@@ -399,19 +402,24 @@ export async function getLiveTvPrograms(
 export function streamUrl(session: JellyfinSession, itemId: string): string {
   const params = new URLSearchParams({
     api_key: session.accessToken,
+    userId: session.userId,
     DeviceId: session.deviceId,
-    MediaSourceId: itemId,
     VideoCodec: "h264",
-    AudioCodec: "aac,mp3",
+    AudioCodec: "aac",
+    AudioStreamIndex: "0",
     TranscodingMaxAudioChannels: "2",
     TranscodingProtocol: "hls",
     TranscodingContainer: "ts",
     SegmentContainer: "ts",
-    MinSegments: "1",
-    BreakOnNonKeyFrames: "true",
+    MinSegments: "2",
+    BreakOnNonKeyFrames: "false",
     EnableAutoStreamCopy: "true",
-    AllowVideoStreamCopy: "false",
+    AllowVideoStreamCopy: "true",
+    EnableTranscoding: "true",
     RequireNonEmptyMetadata: "false",
+    VideoBitrate: "8000000",
+    MaxWidth: "1920",
+    MaxHeight: "1080",
   })
   return `${session.serverUrl}/Videos/${itemId}/master.m3u8?${params.toString()}`
 }

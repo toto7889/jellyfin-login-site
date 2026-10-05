@@ -11,8 +11,9 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Jellyfin — Ma médiathèque',
+  title: 'Jellyfin Personal — Ma médiathèque',
   description: 'Parcourez et regardez votre médiathèque Jellyfin',
+  icons: { icon: '/favicon.svg' },
   generator: 'v0.app',
 }
 

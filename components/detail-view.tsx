@@ -30,6 +30,7 @@ type PlayTarget = {
   subtitle?: string
   backdrop?: string | null
   positionTicks?: number
+  language?: string
 }
 
 function DetailContent({
@@ -137,11 +138,15 @@ function DetailContent({
               ) : null}
             </div>
 
-            {item.Genres?.length ? (
-              <p className="text-sm text-muted-foreground">
-                {item.Genres.join(" · ")}
-              </p>
-            ) : null}
+              {item.Genres?.length ? (
+                <p className="text-sm text-muted-foreground">
+                  {item.Genres.join(" · ")}
+                </p>
+              ) : null}
+              {item.OriginalLanguage || item.Language ? (
+                <p className="text-sm text-muted-foreground">Langue originale : <span className="font-medium text-foreground">{item.OriginalLanguage ?? item.Language}</span></p>
+              ) : null}
+
 
             {!isSeries ? (
               <div className="mt-1 flex flex-wrap gap-2">
@@ -153,6 +158,7 @@ function DetailContent({
                       title: item.Name,
                       backdrop,
                       positionTicks: resumeTicks,
+                      language: item.OriginalLanguage ?? item.Language,
                     })
                   }
                 >
@@ -227,6 +233,7 @@ function DetailContent({
           subtitle={playing.subtitle}
           backdropUrl={playing.backdrop ?? backdrop}
           startPositionTicks={playing.positionTicks}
+          language={playing.language}
           onClose={() => setPlaying(null)}
         />
       ) : null}

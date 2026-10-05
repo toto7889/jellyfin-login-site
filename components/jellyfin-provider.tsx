@@ -5,6 +5,9 @@ import { authenticate, checkServerHealth, type JellyfinSession, type ServerHealt
 
 const STORAGE_KEY = "jf_session"
 const PREFS_KEY = "jf_preferences"
+const BLOCKED_IPS_KEY = "jf_blocked_ips"
+
+const FALLBACK_IP = "192.168.1.24"
 
 type Preferences = { compact: boolean; accent: "red" | "blue"; favorites: string[]; autoplay: boolean; reduceMotion: boolean }
 type JellyfinContextValue = {
@@ -16,6 +19,10 @@ type JellyfinContextValue = {
   logout: () => void
   toggleFavorite: (itemId: string) => void
   updatePreferences: (changes: Partial<Preferences>) => void
+  currentIp: string
+  blockedIps: string[]
+  blockIp: (ip: string) => void
+  unblockIp: (ip: string) => void
 }
 
 const defaults: Preferences = { compact: false, accent: "red", favorites: [], autoplay: true, reduceMotion: false }
@@ -25,14 +32,18 @@ export function JellyfinProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<JellyfinSession | null>(null)
   const [serverHealth, setServerHealth] = useState<ServerHealth | null>(null)
   const [preferences, setPreferences] = useState<Preferences>(defaults)
+  const [blockedIps, setBlockedIps] = useState<string[]>([])
   const [ready, setReady] = useState(false)
+  const currentIp = FALLBACK_IP
 
   useEffect(() => {
     try {
       const rawSession = window.localStorage.getItem(STORAGE_KEY)
       const rawPrefs = window.localStorage.getItem(PREFS_KEY)
+      const rawBlockedIps = window.localStorage.getItem(BLOCKED_IPS_KEY)
       if (rawSession) setSession(JSON.parse(rawSession) as JellyfinSession)
       if (rawPrefs) setPreferences({ ...defaults, ...JSON.parse(rawPrefs) })
+      if (rawBlockedIps) setBlockedIps(JSON.parse(rawBlockedIps) as string[])
     } catch {}
     setReady(true)
   }, [])
@@ -83,6 +94,22 @@ export function JellyfinProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
+  const blockIp = useCallback((ip: string) => {
+    setBlockedIps((current) => {
+      const next = current.includes(ip) ? current : [...current, ip]
+      window.localStorage.setItem(BLOCKED_IPS_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  const unblockIp = useCallback((ip: string) => {
+    setBlockedIps((current) => {
+      const next = current.filter((item) => item !== ip)
+      window.localStorage.setItem(BLOCKED_IPS_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [])
+
   const toggleFavorite = useCallback((itemId: string) => {
     setPreferences((current) => {
       const favorites = current.favorites.includes(itemId)
@@ -94,7 +121,7 @@ export function JellyfinProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const value = useMemo(() => ({ session, ready, serverHealth, preferences, login, logout, toggleFavorite, updatePreferences }), [session, ready, serverHealth, preferences, login, logout, toggleFavorite, updatePreferences])
+  const value = useMemo(() => ({ session, ready, serverHealth, preferences, login, logout, toggleFavorite, updatePreferences, currentIp, blockedIps, blockIp, unblockIp }), [session, ready, serverHealth, preferences, login, logout, toggleFavorite, updatePreferences, blockedIps, blockIp, unblockIp])
   return <JellyfinContext.Provider value={value}>{children}</JellyfinContext.Provider>
 }
 
