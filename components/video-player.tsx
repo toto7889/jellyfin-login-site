@@ -56,15 +56,21 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     const startSeconds = startPositionTicks ? startPositionTicks / 10_000_000 : 0
     const begin = () => { if (startSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = startSeconds; if (preferences.autoplay) void video.play().catch(() => {}) }
     if (Hls.isSupported()) {
-      hls = new Hls({ enableWorker: true, backBufferLength: 90, maxBufferLength: 30 })
+      hls = new Hls({ enableWorker: true, backBufferLength: 90, maxBufferLength: 60, liveSyncDurationCount: 3 })
       hls.attachMedia(video)
       hls.on(Hls.Events.MEDIA_ATTACHED, () => hls?.loadSource(src))
       hls.on(Hls.Events.MANIFEST_PARSED, begin)
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && hls) {
+          hls.startLoad()
+          return
+        }
         hls?.destroy()
         hls = null
-        setError("Impossible de démarrer le flux Jellyfin.")
+        video.src = directStreamUrl(session, itemId)
+        video.load()
+        setError(null)
       })
     } else {
       video.src = video.canPlayType("application/vnd.apple.mpegurl") ? src : directStreamUrl(session, itemId)

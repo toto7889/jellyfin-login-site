@@ -403,18 +403,20 @@ export function streamUrl(session: JellyfinSession, itemId: string): string {
   const params = new URLSearchParams({
     api_key: session.accessToken,
     DeviceId: session.deviceId,
-    MediaSourceId: itemId,
     VideoCodec: "h264",
-    AudioCodec: "aac,mp3",
+    AudioCodec: "aac",
+    AudioStreamIndex: "1",
     TranscodingMaxAudioChannels: "2",
     TranscodingProtocol: "hls",
     TranscodingContainer: "ts",
     SegmentContainer: "ts",
     MinSegments: "1",
     BreakOnNonKeyFrames: "true",
-    EnableAutoStreamCopy: "true",
+    EnableAutoStreamCopy: "false",
     AllowVideoStreamCopy: "false",
+    EnableTranscoding: "true",
     RequireNonEmptyMetadata: "false",
+    VideoBitrate: "8000000",
   })
   return `${session.serverUrl}/Videos/${itemId}/master.m3u8?${params.toString()}`
 }
