@@ -402,6 +402,7 @@ export async function getLiveTvPrograms(
 export function streamUrl(session: JellyfinSession, itemId: string): string {
   const params = new URLSearchParams({
     api_key: session.accessToken,
+    userId: session.userId,
     DeviceId: session.deviceId,
     VideoCodec: "h264",
     AudioCodec: "aac",

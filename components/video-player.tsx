@@ -56,6 +56,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     video.crossOrigin = "anonymous"
     let hls: Hls | null = null
     let fallbackUsed = false
+    let networkRetries = 0
     const src = streamUrl(session, itemId)
     log("Initialisation du flux Jellyfin")
     const fallbackToDirect = () => {
@@ -76,18 +77,18 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       hls.on(Hls.Events.ERROR, (_event, data) => {
         log(`HLS ${data.type}${data.details ? ` · ${data.details}` : ""}`)
         if (!data.fatal) return
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && hls) { log("Reprise réseau"); hls.startLoad(); return }
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && hls && networkRetries < 2) { networkRetries += 1; log(`Reprise réseau ${networkRetries}/2`); hls.startLoad(); return }
         fallbackToDirect()
       })
     } else {
       video.src = video.canPlayType("application/vnd.apple.mpegurl") ? src : directStreamUrl(session, itemId)
       video.addEventListener("loadedmetadata", begin, { once: true })
     }
-    const fallbackTimer = window.setTimeout(() => { if (!video.readyState && !video.paused) fallbackToDirect() }, 15000)
+    const fallbackTimer = window.setTimeout(() => { if (!video.readyState && !ready) { log("Délai HLS dépassé, bascule vers le flux direct"); fallbackToDirect() } }, 12000)
     const onReady = () => { log("Flux prêt à être lu"); setReady(true) }
-    const onPlay = () => { setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); window.history.replaceState(null, "", `/item/${itemId}?status=encours`); revealControls() }
+    const onPlay = () => { setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`); revealControls() }
     const onPause = () => { setPlaying(false); setControls(true); setSecurityNotice(true) }
-    const onTime = () => { setProgress(video.currentTime); setDuration(video.duration || 0) }
+    const onTime = () => { setProgress(video.currentTime); setDuration(video.duration || 0); if (video.duration && !video.paused) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: String(Math.round((video.currentTime / video.duration) * 100)) }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } }
     const onError = () => setError("Ce format n'est pas lisible par le navigateur ou le serveur.")
     video.addEventListener("canplay", onReady); video.addEventListener("playing", onPlay); video.addEventListener("pause", onPause); video.addEventListener("timeupdate", onTime); video.addEventListener("durationchange", onTime); video.addEventListener("error", onError)
     const interval = window.setInterval(() => { if (!video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
