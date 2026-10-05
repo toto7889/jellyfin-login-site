@@ -25,6 +25,9 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const [controls, setControls] = useState(true)
   const [retrying, setRetrying] = useState(false)
   const [retryNonce, setRetryNonce] = useState(0)
+  const [logs, setLogs] = useState<string[]>([])
+  const [showLogs, setShowLogs] = useState(false)
+  const log = (message: string) => setLogs((items) => [...items.slice(-7), `${new Date().toLocaleTimeString()} · ${message}`])
 
   function revealControls() { setControls(true); if (hideTimer.current) window.clearTimeout(hideTimer.current); hideTimer.current = window.setTimeout(() => { if (playing) setControls(false) }, 2800) }
   function togglePlay() { const video = videoRef.current; if (!video) return; if (video.paused) void video.play(); else video.pause(); revealControls() }
@@ -49,47 +52,53 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
-    setReady(false); setError(null); setRetrying(false)
+    setReady(false); setError(null); setRetrying(false); setLogs([])
     video.crossOrigin = "anonymous"
     let hls: Hls | null = null
+    let fallbackUsed = false
     const src = streamUrl(session, itemId)
+    log("Initialisation du flux Jellyfin")
+    const fallbackToDirect = () => {
+      if (fallbackUsed) return
+      fallbackUsed = true
+      log("HLS indisponible, essai du flux direct")
+      hls?.destroy(); hls = null
+      video.src = directStreamUrl(session, itemId)
+      video.load()
+    }
     const startSeconds = startPositionTicks ? startPositionTicks / 10_000_000 : 0
     const begin = () => { if (startSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = startSeconds; if (preferences.autoplay) void video.play().catch(() => {}) }
     if (Hls.isSupported()) {
       hls = new Hls({ enableWorker: true, backBufferLength: 90, maxBufferLength: 60, liveSyncDurationCount: 3 })
       hls.attachMedia(video)
-      hls.on(Hls.Events.MEDIA_ATTACHED, () => hls?.loadSource(src))
-      hls.on(Hls.Events.MANIFEST_PARSED, begin)
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => { log("HLS attaché"); hls?.loadSource(src) })
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { log("Manifest HLS reçu"); begin() })
       hls.on(Hls.Events.ERROR, (_event, data) => {
+        log(`HLS ${data.type}${data.details ? ` · ${data.details}` : ""}`)
         if (!data.fatal) return
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && hls) {
-          hls.startLoad()
-          return
-        }
-        hls?.destroy()
-        hls = null
-        video.src = directStreamUrl(session, itemId)
-        video.load()
-        setError(null)
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && hls) { log("Reprise réseau"); hls.startLoad(); return }
+        fallbackToDirect()
       })
     } else {
       video.src = video.canPlayType("application/vnd.apple.mpegurl") ? src : directStreamUrl(session, itemId)
       video.addEventListener("loadedmetadata", begin, { once: true })
     }
-    const onReady = () => setReady(true)
+    const fallbackTimer = window.setTimeout(() => { if (!video.readyState && !video.paused) fallbackToDirect() }, 15000)
+    const onReady = () => { log("Flux prêt à être lu"); setReady(true) }
     const onPlay = () => { setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); window.history.replaceState(null, "", `/item/${itemId}?status=encours`); revealControls() }
     const onPause = () => { setPlaying(false); setControls(true); setSecurityNotice(true) }
     const onTime = () => { setProgress(video.currentTime); setDuration(video.duration || 0) }
     const onError = () => setError("Ce format n'est pas lisible par le navigateur ou le serveur.")
     video.addEventListener("canplay", onReady); video.addEventListener("playing", onPlay); video.addEventListener("pause", onPause); video.addEventListener("timeupdate", onTime); video.addEventListener("durationchange", onTime); video.addEventListener("error", onError)
     const interval = window.setInterval(() => { if (!video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
-    return () => { window.clearInterval(interval); if (hideTimer.current) window.clearTimeout(hideTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); hls?.destroy() }
+    return () => { window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); hls?.destroy() }
   }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce])
 
   return <div ref={shellRef} onMouseMove={revealControls} onTouchStart={revealControls} className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-label={`Lecteur : ${title}`}>
-    <div className={`absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/85 to-transparent px-5 pb-14 pt-5 transition-opacity duration-300 ${controls ? "opacity-100" : "pointer-events-none opacity-0"}`}><button type="button" onClick={onClose} className="flex items-center gap-2 text-sm font-medium text-white/85 hover:text-white"><ChevronLeft className="size-6" /> Retour</button><div className="text-center"><h2 className="font-semibold">{title}</h2>{subtitle ? <p className="text-xs text-white/55">{subtitle}</p> : null}{language ? <p className="text-xs text-cyan-200/80">Langue : {language}</p> : null}</div><button type="button" className="text-white/70 hover:text-white" aria-label="Paramètres"><Settings2 className="size-5" /></button></div>
+    <div className={`absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/85 to-transparent px-5 pb-14 pt-5 transition-opacity duration-300 ${controls ? "opacity-100" : "pointer-events-none opacity-0"}`}><button type="button" onClick={onClose} className="flex items-center gap-2 text-sm font-medium text-white/85 hover:text-white"><ChevronLeft className="size-6" /> Retour</button><div className="text-center"><h2 className="font-semibold">{title}</h2>{subtitle ? <p className="text-xs text-white/55">{subtitle}</p> : null}{language ? <p className="text-xs text-cyan-200/80">Langue : {language}</p> : null}</div><button type="button" onClick={() => setShowLogs((value) => !value)} className="flex items-center gap-2 text-xs text-white/70 hover:text-white" aria-label="Afficher les logs"><Settings2 className="size-5" /> Logs</button></div>
     <div className="relative flex min-h-0 flex-1 items-center justify-center" onDoubleClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }}>
       <video ref={videoRef} playsInline className={`h-full w-full object-contain transition-opacity duration-500 ${ready ? "opacity-100" : "opacity-0"}`} onClick={togglePlay} />
+      {showLogs ? <aside className="absolute right-5 top-20 z-40 w-[min(420px,calc(100%-2.5rem))] rounded-2xl border border-white/15 bg-black/80 p-4 font-mono text-[11px] text-white/75 shadow-2xl backdrop-blur-xl"><div className="mb-3 flex items-center justify-between font-sans text-sm text-white"><span>Diagnostic de lecture</span><button type="button" onClick={() => setShowLogs(false)} aria-label="Fermer les logs">Fermer</button></div><div className="max-h-44 overflow-auto">{logs.length ? logs.map((entry, index) => <p key={`${entry}-${index}`} className="border-b border-white/5 py-1">{entry}</p>) : <p>Aucun événement.</p>}</div></aside> : null}
       {securityNotice && !playing ? <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-2xl border border-amber-200/20 bg-black/70 px-5 py-3 text-center text-sm text-amber-100 backdrop-blur-xl">Lecture en pause. Redirection dans <strong>{Math.max(0, idleLimit - idleSeconds)} s</strong> si aucun film n&apos;est lancé.</div> : null}
       {!ready ? <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-black">{backdropUrl ? <img src={backdropUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-35 blur-sm" /> : null}<div className="absolute inset-0 bg-black/50" /> <div className="relative text-center">{error ? <><p className="max-w-sm text-sm text-red-100">{error}</p><button type="button" onClick={() => { setRetrying(true); setRetryNonce((value) => value + 1) }} className="mt-5 rounded-md bg-[#e50914] px-5 py-2 text-sm font-semibold transition hover:bg-[#f6121d] disabled:opacity-60" disabled={retrying}>{retrying ? "Nouvel essai…" : "Réessayer"}</button><p className="mt-3 max-w-sm text-xs text-white/45">Jellyfin transcode automatiquement les formats AVI, MKV et MP4 compatibles serveur.</p></> : <><div className="mx-auto size-12 animate-spin rounded-full border-4 border-white/20 border-t-[#e50914]" /><p className="mt-5 font-medium">Préparation de la lecture</p><p className="mt-1 text-xs uppercase tracking-[.25em] text-white/45">{title}</p></>}</div></div> : null}
       {ready && !playing && !error ? <button type="button" onClick={togglePlay} className="absolute left-1/2 top-1/2 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-black shadow-2xl transition hover:scale-105" aria-label="Lire"><Play className="ml-1 size-7 fill-current" /></button> : null}
