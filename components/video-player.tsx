@@ -1,9 +1,8 @@
 "use client"
 
-import Hls from "hls.js"
 import { ChevronLeft, Maximize, Pause, Play, Settings2, Volume2, VolumeX } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import { directStreamUrl, reportProgress, streamUrl, type JellyfinSession } from "@/lib/jellyfin"
+import { directStreamUrl, reportProgress, type JellyfinSession } from "@/lib/jellyfin"
 import { useJellyfin } from "@/components/jellyfin-provider"
 
 type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; onClose: () => void }
@@ -54,37 +53,15 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     if (!video) return
     setReady(false); setError(null); setRetrying(false); setLogs([])
     video.crossOrigin = "anonymous"
-    let hls: Hls | null = null
-    let fallbackUsed = false
-    let networkRetries = 0
-    const src = streamUrl(session, itemId)
-    log("Initialisation du flux Jellyfin")
-    const fallbackToDirect = () => {
-      if (fallbackUsed) return
-      fallbackUsed = true
-      log("HLS indisponible, essai du flux direct")
-      hls?.destroy(); hls = null
-      video.src = directStreamUrl(session, itemId)
-      video.load()
-    }
+    const directUrl = directStreamUrl(session, itemId)
     const startSeconds = startPositionTicks ? startPositionTicks / 10_000_000 : 0
-    const begin = () => { if (startSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = startSeconds; if (preferences.autoplay) void video.play().catch(() => {}) }
-    if (Hls.isSupported()) {
-      hls = new Hls({ enableWorker: true, backBufferLength: 90, maxBufferLength: 60, liveSyncDurationCount: 3 })
-      hls.attachMedia(video)
-      hls.on(Hls.Events.MEDIA_ATTACHED, () => { log("HLS attaché"); hls?.loadSource(src) })
-      hls.on(Hls.Events.MANIFEST_PARSED, () => { log("Manifest HLS reçu"); begin() })
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        log(`HLS ${data.type}${data.details ? ` · ${data.details}` : ""}`)
-        if (!data.fatal) return
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && hls && networkRetries < 2) { networkRetries += 1; log(`Reprise réseau ${networkRetries}/2`); hls.startLoad(); return }
-        fallbackToDirect()
-      })
-    } else {
-      video.src = video.canPlayType("application/vnd.apple.mpegurl") ? src : directStreamUrl(session, itemId)
-      video.addEventListener("loadedmetadata", begin, { once: true })
-    }
-    const fallbackTimer = window.setTimeout(() => { if (!video.readyState && !ready) { log("Délai HLS dépassé, bascule vers le flux direct"); fallbackToDirect() } }, 12000)
+    log("Initialisation du flux direct Jellyfin")
+    log("Connexion au fichier vidéo original")
+    video.src = directUrl
+    video.preload = "auto"
+    const begin = () => { if (startSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = startSeconds; log("Métadonnées reçues, lecteur prêt"); if (preferences.autoplay) void video.play().catch(() => log("Lecture automatique bloquée par le navigateur")) }
+    video.addEventListener("loadedmetadata", begin, { once: true })
+    const fallbackTimer = window.setTimeout(() => { if (!video.readyState && !ready) { log("Délai du flux direct dépassé"); setError("Le flux direct Jellyfin ne répond pas. Vérifiez le format et les permissions du serveur.") } }, 15000)
     const onReady = () => { log("Flux prêt à être lu"); setReady(true) }
     const onPlay = () => { setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`); revealControls() }
     const onPause = () => { setPlaying(false); setControls(true); setSecurityNotice(true) }
@@ -92,7 +69,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     const onError = () => setError("Ce format n'est pas lisible par le navigateur ou le serveur.")
     video.addEventListener("canplay", onReady); video.addEventListener("playing", onPlay); video.addEventListener("pause", onPause); video.addEventListener("timeupdate", onTime); video.addEventListener("durationchange", onTime); video.addEventListener("error", onError)
     const interval = window.setInterval(() => { if (!video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
-    return () => { window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); hls?.destroy() }
+    return () => { window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeAttribute("src"); video.load() }
   }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce])
 
   return <div ref={shellRef} onMouseMove={revealControls} onTouchStart={revealControls} className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-label={`Lecteur : ${title}`}>
