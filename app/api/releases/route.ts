@@ -81,8 +81,28 @@ export async function POST(request: Request) {
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-export async function GET() {
-  return NextResponse.json({ repository: "toto7889/jellyfin-login-site", connected: true })
+export async function GET(request: Request) {
+  const url = new URL(request.url)
+  const action = url.searchParams.get("action") ?? "status"
+  const repo = url.searchParams.get("repo") ?? TARGET_REPOSITORY
+
+  if (repo !== TARGET_REPOSITORY) {
+    return NextResponse.json({ error: `Ce connecteur publie uniquement sur ${TARGET_REPOSITORY}.` }, { status: 403 })
+  }
+
+  if (action === "list") {
+    try {
+      const response = await githubRequest(`/repos/${repo}/releases?per_page=10`)
+      const releases = await response.json()
+      if (!response.ok) return NextResponse.json({ error: releases.message ?? "GitHub a refusé la lecture des releases." }, { status: response.status })
+      return NextResponse.json({ releases })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Connexion GitHub indisponible."
+      return NextResponse.json({ error: message }, { status: 502 })
+    }
+  }
+
+  return NextResponse.json({ repository: TARGET_REPOSITORY, connected: true })
 }
 
 export const dynamic = "force-dynamic"
