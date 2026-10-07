@@ -4,6 +4,7 @@ import { NextResponse } from "next/server"
 
 const CONNECTOR_UID = "scl_a6CWYUM38Akk5YgcASubfA"
 const GITHUB_API = "https://api.github.com"
+const TARGET_REPOSITORY = "toto7889/jellyfin-login-site"
 
 async function githubRequest(path: string, init: RequestInit = {}) {
   const token = await getToken(CONNECTOR_UID, {
@@ -38,8 +39,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ notes: result.text })
     }
 
-    if (!/^[-a-zA-Z0-9_.]+\/[a-zA-Z0-9_.-]+$/.test(repo) || !tag || !title) {
-      return NextResponse.json({ error: "Dépôt, tag et titre requis." }, { status: 400 })
+    if (repo !== TARGET_REPOSITORY) {
+      return NextResponse.json({ error: `Ce connecteur publie uniquement sur ${TARGET_REPOSITORY}.` }, { status: 403 })
+    }
+    if (!tag || !title) {
+      return NextResponse.json({ error: "Tag et titre requis." }, { status: 400 })
     }
 
     const releaseResponse = await githubRequest(`/repos/${repo}/releases`, {
