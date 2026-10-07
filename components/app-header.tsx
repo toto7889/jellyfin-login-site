@@ -2,13 +2,13 @@
 
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 
-export function AppHeader() {
+function AppHeaderContent() {
   const { session, logout, preferences, updatePreferences } = useJellyfin()
   const router = useRouter()
   const pathname = usePathname()
@@ -67,5 +67,13 @@ export function AppHeader() {
       </header>
       {confirmLogout ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md animate-in fade-in duration-300"><div role="dialog" aria-modal="true" className={`w-full max-w-sm rounded-2xl border border-white/10 bg-[#191919] p-6 shadow-[0_0_80px_rgba(229,9,20,.18)] animate-in zoom-in-95 duration-300 ${loggingOut ? "scale-95 opacity-0 transition-all duration-700" : ""}`}><div className="flex items-start justify-between"><div><div className="mb-4 h-1 w-12 rounded-full bg-[#e50914] shadow-[0_0_18px_#e50914]" /><h2 className="text-lg font-semibold text-white">Se déconnecter ?</h2><p className="mt-2 text-sm text-white/55">Votre session sera supprimée de cet appareil.</p></div><button type="button" onClick={() => setConfirmLogout(false)} className="text-white/50 transition hover:rotate-90 hover:text-white" aria-label="Fermer" disabled={loggingOut}><X className="size-5" /></button></div><div className="mt-6 flex justify-end gap-2"><Button variant="ghost" onClick={() => setConfirmLogout(false)} disabled={loggingOut}>Annuler</Button><Button onClick={doLogout} disabled={loggingOut} className="min-w-32 bg-[#e50914] text-white shadow-[0_0_20px_rgba(229,9,20,.25)] transition hover:scale-[1.02] hover:bg-[#f6121d]">{loggingOut ? "À bientôt…" : "Déconnexion"}</Button></div></div></div> : null}
     </>
+  )
+}
+
+export function AppHeader() {
+  return (
+    <Suspense fallback={null}>
+      <AppHeaderContent />
+    </Suspense>
   )
 }
