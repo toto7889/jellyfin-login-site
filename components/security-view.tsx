@@ -23,10 +23,10 @@ export function VerificationView() {
 }
 
 export function IpView() {
-  const { session, currentIp, blockedIps } = useJellyfin()
+  const { session, currentIp, publicIpVerified, blockedIps } = useJellyfin()
   const isBlocked = blockedIps.includes(currentIp)
   return <SecurityShell eyebrow="Réseau & sécurité" title="Votre adresse IP" description="Consultez le statut de votre connexion actuelle.">
-    <div className="grid gap-4 sm:grid-cols-2"><div className="glass-panel p-6"><p className="text-xs uppercase tracking-[.2em] text-white/40">IP détectée</p><p className="mt-3 font-mono text-3xl tracking-tight">{currentIp}</p><div className={`mt-5 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs ${isBlocked ? "bg-rose-400/15 text-rose-200" : "bg-emerald-400/15 text-emerald-200"}`}><span className="size-1.5 rounded-full bg-current" />{isBlocked ? "Accès bloqué" : "Accès autorisé"}</div></div><div className="glass-panel p-6"><p className="text-xs uppercase tracking-[.2em] text-white/40">Appareil</p><p className="mt-3 truncate font-medium">{session?.deviceId?.slice(0, 20) ?? "Appareil actuel"}</p><p className="mt-2 text-sm text-white/45">Adresse pseudonymisée pour votre sécurité.</p></div></div>
+    <div className="grid gap-4 sm:grid-cols-2"><div className="glass-panel p-6"><p className="text-xs uppercase tracking-[.2em] text-white/40">IP détectée</p><p className="mt-3 font-mono text-3xl tracking-tight">{currentIp}</p><p className="mt-2 text-xs text-white/45">{publicIpVerified ? "IP publique vérifiée côté serveur" : "Vérification publique indisponible"}</p><div className={`mt-5 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs ${isBlocked ? "bg-rose-400/15 text-rose-200" : "bg-emerald-400/15 text-emerald-200"}`}><span className="size-1.5 rounded-full bg-current" />{isBlocked ? "Accès bloqué" : "Accès autorisé"}</div></div><div className="glass-panel p-6"><p className="text-xs uppercase tracking-[.2em] text-white/40">Appareil</p><p className="mt-3 truncate font-medium">{session?.deviceId?.slice(0, 20) ?? "Appareil actuel"}</p><p className="mt-2 text-sm text-white/45">Adresse pseudonymisée pour votre sécurité.</p></div></div>
     <div className="glass-panel mt-4 p-6"><div className="flex items-start gap-4"><ShieldAlert className="mt-1 size-5 text-amber-200" /><div><h2 className="font-semibold">Besoin d&apos;aide ?</h2><p className="mt-1 text-sm text-white/50">Si cette adresse est incorrecte ou bloquée par erreur, contactez l&apos;administrateur Jellyfin-perso.</p></div></div></div>
   </SecurityShell>
 }
