@@ -125,6 +125,16 @@
 @keyframes login-orb { from { transform: translate3d(-3%, -2%, 0) scale(1); } to { transform: translate3d(4%, 4%, 0) scale(1.12); } }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .shimmer { background: linear-gradient(110deg, rgb(255 255 255 / .04) 30%, rgb(255 255 255 / .1) 45%, rgb(255 255 255 / .04) 60%); background-size: 200% 100%; animation: shimmer 2.5s linear infinite; }
+.visit-splash { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; align-content: center; gap: .7rem; background: #08090d; animation: visit-splash-out .45s ease 0.8s forwards; pointer-events: none; }
+.visit-splash__glow { position: absolute; width: 24rem; height: 24rem; border-radius: 9999px; background: radial-gradient(circle, rgb(0 164 220 / .18), transparent 68%); filter: blur(12px); }
+.visit-splash__mark { position: relative; display: grid; place-items: center; width: 4.5rem; height: 4.5rem; border-radius: 1.35rem; color: white; background: linear-gradient(145deg, #08a9df, #0876b5); box-shadow: 0 0 48px rgb(0 164 220 / .34); animation: visit-splash-pulse 1s ease-in-out infinite alternate; }
+.visit-splash__brand { position: relative; margin: 0; font-size: 2rem; font-weight: 900; letter-spacing: -.08em; color: white; }
+.visit-splash__message { position: relative; margin: 0; color: rgb(255 255 255 / .58); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+.visit-splash__loader { position: relative; width: 7rem; height: 2px; overflow: hidden; background: rgb(255 255 255 / .12); }
+.visit-splash__loader::after { content: ""; display: block; width: 45%; height: 100%; background: #00a4dc; animation: visit-splash-loader .9s ease-in-out infinite; }
+@keyframes visit-splash-out { to { opacity: 0; visibility: hidden; } }
+@keyframes visit-splash-pulse { to { transform: translateY(-4px) scale(1.03); } }
+@keyframes visit-splash-loader { from { transform: translateX(-120%); } to { transform: translateX(240%); } }
 @media (max-width: 640px) { .netflix-hover:hover { transform: none; filter: none; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }

@@ -2,7 +2,7 @@
 
 import useSWR from "swr"
 import { useState } from "react"
-import { Heart, Loader2, Play, Star, User } from "lucide-react"
+import { Heart, Loader2, Play, Share2, Star, User } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { VideoPlayer } from "@/components/video-player"
 import { Button } from "@/components/ui/button"
@@ -42,6 +42,7 @@ function DetailContent({
 }) {
   const { preferences, toggleFavorite } = useJellyfin()
   const [playing, setPlaying] = useState<PlayTarget | null>(null)
+  const [shared, setShared] = useState(false)
 
   const { data, error, isLoading } = useSWR(
     ["item", session.userId, itemId],
@@ -84,7 +85,7 @@ function DetailContent({
 
   return (
     <div className="pb-16 netflix-fade-up">
-      <div className="relative h-[40dvh] min-h-64 w-full overflow-hidden">
+      <div className="relative h-[46dvh] min-h-72 w-full overflow-hidden">
         {backdrop ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -99,15 +100,15 @@ function DetailContent({
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent" />
       </div>
 
-      <div className="mx-auto -mt-32 max-w-7xl px-4 sm:px-6">
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-end">
+      <div className="relative z-10 mx-auto -mt-20 max-w-7xl px-4 sm:px-6 sm:-mt-28">
+        <div className="grid gap-6 sm:grid-cols-[13rem_minmax(0,1fr)] sm:items-end md:grid-cols-[14rem_minmax(0,1fr)]">
           {poster ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={poster || "/placeholder.svg"}
               alt={item.Name}
               crossOrigin="anonymous"
-              className="hidden aspect-[2/3] w-44 shrink-0 rounded-xl border border-white/10 object-cover shadow-2xl sm:block md:w-52"
+              className="mx-auto aspect-[2/3] w-44 rounded-xl border border-white/10 object-cover shadow-2xl sm:mx-0 md:w-52"
             />
           ) : null}
 
@@ -164,6 +165,20 @@ function DetailContent({
                 >
                   <Play className="size-4 fill-current" />
                   {resumeTicks > 0 ? "Reprendre" : "Lire"}
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={async () => {
+                    const shareData = { title: item.Name, text: `Regarder ${item.Name} sur JFLX`, url: window.location.href }
+                    if (navigator.share) await navigator.share(shareData).catch(() => undefined)
+                    else await navigator.clipboard.writeText(window.location.href)
+                    setShared(true)
+                    window.setTimeout(() => setShared(false), 1800)
+                  }}
+                >
+                  <Share2 className="size-4" />
+                  {shared ? "Lien copié" : "Partager"}
                 </Button>
                 <Button
                   size="lg"
