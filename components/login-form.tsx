@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { Check, Eye, EyeOff, Fingerprint, Loader2, Play, RefreshCw, ShieldCheck, Wifi, WifiOff } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
+import { VisitSplash } from "@/components/visit-splash"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -117,7 +118,9 @@ export function LoginForm() {
   }
 
   return (
-    <main className="login-stage relative min-h-dvh overflow-hidden bg-[#080808] text-white">
+    <>
+      <VisitSplash />
+      <main className="login-stage relative min-h-dvh overflow-hidden bg-[#080808] text-white">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(229,9,20,.24),transparent_42%),radial-gradient(ellipse_at_bottom_left,rgba(0,164,220,.12),transparent_40%)]" />
       <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/20 to-black" />
       <div className="relative mx-auto flex min-h-dvh w-full max-w-7xl items-center justify-center px-5 py-12 lg:justify-between lg:px-14">
@@ -183,7 +186,8 @@ export function LoginForm() {
           <p className="mt-5 text-center text-xs text-white/35">Serveur : {SERVER_URL.replace(/^https?:\/\//, "")}</p>
         </section>
       </div>
-    </main>
+      </main>
+    </>
   )
 }
 

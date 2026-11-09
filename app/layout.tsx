@@ -2,7 +2,6 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { JellyfinProvider } from '@/components/jellyfin-provider'
-import { VisitSplash } from '@/components/visit-splash'
 import './globals.css'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
@@ -34,7 +33,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} bg-background`}
     >
       <body className="font-sans antialiased">
-        <JellyfinProvider><VisitSplash />{children}</JellyfinProvider>
+        <JellyfinProvider>{children}</JellyfinProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

@@ -15,10 +15,10 @@ export function VisitSplash() {
   return (
     <div className="visit-splash" role="status" aria-label="Connexion directe au serveur Jellyfin">
       <div className="visit-splash__glow" />
-      <div className="visit-splash__mark"><Play className="size-7 fill-current" /></div>
+      <div className="visit-splash__mark" aria-hidden="true"><Play className="size-7 fill-current" /></div>
       <p className="visit-splash__brand">JFLX</p>
-      <p className="visit-splash__message">Connexion directe depuis votre navigateur</p>
-      <span className="visit-splash__loader" />
+      <p className="visit-splash__message">Vérification terminée · connexion directe depuis votre navigateur</p>
+      <span className="visit-splash__loader" aria-hidden="true" />
     </div>
   )
 }

@@ -125,7 +125,8 @@
 @keyframes login-orb { from { transform: translate3d(-3%, -2%, 0) scale(1); } to { transform: translate3d(4%, 4%, 0) scale(1.12); } }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .shimmer { background: linear-gradient(110deg, rgb(255 255 255 / .04) 30%, rgb(255 255 255 / .1) 45%, rgb(255 255 255 / .04) 60%); background-size: 200% 100%; animation: shimmer 2.5s linear infinite; }
-.visit-splash { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; align-content: center; gap: .7rem; background: #08090d; animation: visit-splash-out .45s ease 0.8s forwards; pointer-events: none; }
+.visit-splash { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 1.25rem; background: rgb(2 5 12 / .68); backdrop-filter: blur(10px); animation: visit-splash-out .5s ease 1.55s forwards; pointer-events: none; }
+.visit-splash::before { content: ""; position: absolute; width: min(24rem, calc(100vw - 2.5rem)); height: 18rem; border: 1px solid rgb(255 255 255 / .14); border-radius: 1.75rem; background: linear-gradient(145deg, rgb(18 28 43 / .96), rgb(7 12 22 / .96)); box-shadow: 0 30px 90px rgb(0 0 0 / .45), inset 0 1px rgb(255 255 255 / .12); }
 .visit-splash__glow { position: absolute; width: 24rem; height: 24rem; border-radius: 9999px; background: radial-gradient(circle, rgb(0 164 220 / .18), transparent 68%); filter: blur(12px); }
 .visit-splash__mark { position: relative; display: grid; place-items: center; width: 4.5rem; height: 4.5rem; border-radius: 1.35rem; color: white; background: linear-gradient(145deg, #08a9df, #0876b5); box-shadow: 0 0 48px rgb(0 164 220 / .34); animation: visit-splash-pulse 1s ease-in-out infinite alternate; }
 .visit-splash__brand { position: relative; margin: 0; font-size: 2rem; font-weight: 900; letter-spacing: -.08em; color: white; }
