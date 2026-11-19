@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { Check, Eye, EyeOff, Fingerprint, Loader2, Play, RefreshCw, ShieldCheck, Wifi, WifiOff } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
+import { VisitSplash } from "@/components/visit-splash"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -117,7 +118,9 @@ export function LoginForm() {
   }
 
   return (
-    <main className="login-stage relative min-h-dvh overflow-hidden bg-[#080808] text-white">
+    <>
+      <VisitSplash />
+      <main className="login-stage relative min-h-dvh overflow-hidden bg-[#080808] text-white">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(229,9,20,.24),transparent_42%),radial-gradient(ellipse_at_bottom_left,rgba(0,164,220,.12),transparent_40%)]" />
       <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/20 to-black" />
       <div className="relative mx-auto flex min-h-dvh w-full max-w-7xl items-center justify-center px-5 py-12 lg:justify-between lg:px-14">
@@ -135,11 +138,11 @@ export function LoginForm() {
           <div className="mb-7 flex items-center gap-2 lg:hidden"><span className="flex size-9 items-center justify-center rounded-lg bg-[#e50914]"><Play className="size-5 fill-white" /></span><span className="text-xl font-black tracking-tight">JELLYFIN</span></div>
           <form onSubmit={onSubmit} className="rounded-md bg-black/75 px-7 py-9 shadow-2xl backdrop-blur-md sm:px-12 sm:py-12">
             <h2 className="text-3xl font-bold tracking-tight">S&apos;identifier</h2>
-            <p className="mt-2 text-sm text-white/55">Connectez-vous à votre compte Jellyfin.</p>
+            <p className="mt-2 text-sm text-white/55">Le navigateur se connecte directement à votre serveur Jellyfin avec votre nom d&apos;utilisateur et votre mot de passe.</p>
             <div className="mt-5 flex items-center gap-3 rounded-lg border border-white/10 bg-white/[.04] px-3 py-2.5 text-xs" aria-live="polite">
               {serverHealth?.online ? <Wifi className="size-4 text-emerald-400" /> : <WifiOff className="size-4 text-amber-300" />}
               <span className="min-w-0 flex-1 text-white/60">
-                {serverHealth?.online ? `Serveur sécurisé connecté · ${serverHealth.latencyMs ?? "—"} ms` : serverHealth ? "Serveur non disponible — vérifiez la connexion" : "Vérification sécurisée du serveur…"}
+                {serverHealth?.online ? `Serveur Jellyfin accessible · ${serverHealth.latencyMs ?? "—"} ms` : serverHealth ? "Serveur non disponible — vérifiez la connexion" : "Vérification du serveur Jellyfin…"}
               </span>
               <span className={`size-2 rounded-full ${serverHealth?.online ? "bg-emerald-400" : "bg-amber-300 animate-pulse"}`} />
             </div>
@@ -183,7 +186,8 @@ export function LoginForm() {
           <p className="mt-5 text-center text-xs text-white/35">Serveur : {SERVER_URL.replace(/^https?:\/\//, "")}</p>
         </section>
       </div>
-    </main>
+      </main>
+    </>
   )
 }
 

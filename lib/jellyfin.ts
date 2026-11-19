@@ -161,10 +161,14 @@ export async function authenticate(
   password: string,
 ): Promise<JellyfinSession> {
   const deviceId = getDeviceId()
-  const res = await fetch("/api/jellyfin/authenticate", {
+  const res = await fetch(`${SERVER_URL}/Users/AuthenticateByName`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, deviceId }),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: buildAuthHeader(deviceId),
+    },
+    body: JSON.stringify({ Username: username, Pw: password }),
+    cache: "no-store",
   })
   if (res.status === 401) {
     throw new Error("Identifiant ou mot de passe incorrect.")

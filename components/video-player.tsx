@@ -33,6 +33,20 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   function seek(value: number) { const video = videoRef.current; if (!video) return; video.currentTime = value; setProgress(value); revealControls() }
 
   useEffect(() => {
+    const channel = typeof window !== "undefined" && "BroadcastChannel" in window ? new BroadcastChannel("jflx-player-control") : null
+    if (!channel) return
+    channel.onmessage = (event) => {
+      const video = videoRef.current
+      if (!video) return
+      if (event.data?.type === "play") void video.play()
+      if (event.data?.type === "pause") video.pause()
+      if (event.data?.type === "stop") onClose()
+      if (event.data?.type === "seek") video.currentTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + event.data.seconds))
+    }
+    return () => channel.close()
+  }, [onClose])
+
+  useEffect(() => {
     const video = videoRef.current
     if (!video) return
     const idleTimer = window.setInterval(() => {
