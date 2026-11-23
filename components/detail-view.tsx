@@ -85,7 +85,7 @@ function DetailContent({
 
   return (
     <div className="pb-16 netflix-fade-up">
-      <div className="relative h-[46dvh] min-h-72 w-full overflow-hidden">
+      <div className="relative h-[34dvh] min-h-56 w-full overflow-hidden sm:h-[46dvh] sm:min-h-72">
         {backdrop ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -100,15 +100,15 @@ function DetailContent({
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent" />
       </div>
 
-      <div className="relative z-10 mx-auto -mt-20 max-w-7xl px-4 sm:px-6 sm:-mt-28">
-        <div className="grid gap-6 sm:grid-cols-[13rem_minmax(0,1fr)] sm:items-end md:grid-cols-[14rem_minmax(0,1fr)]">
+      <div className="relative z-10 mx-auto -mt-16 max-w-7xl px-4 pb-20 sm:-mt-28 sm:px-6 sm:pb-0">
+        <div className="grid gap-5 sm:grid-cols-[13rem_minmax(0,1fr)] sm:items-end md:grid-cols-[14rem_minmax(0,1fr)]">
           {poster ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={poster || "/placeholder.svg"}
               alt={item.Name}
               crossOrigin="anonymous"
-              className="mx-auto aspect-[2/3] w-44 rounded-xl border border-white/10 object-cover shadow-2xl sm:mx-0 md:w-52"
+              className="mx-auto aspect-[2/3] w-32 rounded-xl border border-white/10 object-cover shadow-2xl sm:mx-0 sm:w-44 md:w-52"
             />
           ) : null}
 
@@ -371,7 +371,7 @@ function SeasonsSection({
                       positionTicks: ep.UserData?.PlaybackPositionTicks,
                     })
                   }
-                  className="flex w-full items-center gap-4 bg-card p-3 text-left transition-colors hover:bg-secondary"
+                  className="flex w-full items-start gap-3 bg-card p-3 text-left transition-colors hover:bg-secondary sm:items-center sm:gap-4"
                 >
                   <div className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-md bg-secondary">
                     {thumb ? (

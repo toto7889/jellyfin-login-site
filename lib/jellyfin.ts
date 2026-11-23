@@ -66,6 +66,25 @@ export type Person = {
   PrimaryImageTag?: string
 }
 
+export type JellyfinPlaybackSession = {
+  Id: string
+  DeviceId: string
+  DeviceName: string
+  Client: string
+  UserId?: string
+  UserName?: string
+  NowPlayingItem?: BaseItem
+  PlayState?: {
+    IsPaused?: boolean
+    IsMuted?: boolean
+    VolumeLevel?: number
+    PositionTicks?: number
+    CanSeek?: boolean
+  }
+  SupportsRemoteControl?: boolean
+  SupportsMediaControl?: boolean
+}
+
 type ItemsResponse = {
   Items: BaseItem[]
   TotalRecordCount: number
@@ -436,6 +455,42 @@ export function directStreamUrl(
     static: "true",
   })
   return `${session.serverUrl}/Videos/${itemId}/stream?${params.toString()}`
+}
+
+export async function getPlaybackSessions(
+  session: JellyfinSession,
+): Promise<JellyfinPlaybackSession[]> {
+  return apiFetch<JellyfinPlaybackSession[]>(
+    session,
+    `/Sessions?ControllableByUserId=${encodeURIComponent(session.userId)}`,
+  )
+}
+
+export async function sendPlaybackCommand(
+  session: JellyfinSession,
+  sessionId: string,
+  command: "PlayPause" | "Play" | "Pause" | "Stop" | "Unpause",
+): Promise<void> {
+  await apiFetch<void>(
+    session,
+    `/Sessions/${encodeURIComponent(sessionId)}/Playing/${command}`,
+    { method: "POST" },
+  )
+}
+
+export async function seekPlaybackSession(
+  session: JellyfinSession,
+  sessionId: string,
+  positionTicks: number,
+): Promise<void> {
+  await apiFetch<void>(
+    session,
+    `/Sessions/${encodeURIComponent(sessionId)}/Playing/Seek`,
+    {
+      method: "POST",
+      body: JSON.stringify({ SeekPositionTicks: Math.max(0, Math.round(positionTicks)) }),
+    },
+  )
 }
 
 export async function reportProgress(
