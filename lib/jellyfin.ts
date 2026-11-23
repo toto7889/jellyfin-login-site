@@ -175,6 +175,51 @@ export async function checkServerHealth(
   }
 }
 
+export type QuickConnectRequest = { Secret: string; Code: string; Authenticated: boolean }
+
+type AuthenticationResponse = { AccessToken: string; User: { Id: string; Name: string } }
+
+export async function isQuickConnectEnabled(): Promise<boolean> {
+  const response = await fetch(`${SERVER_URL}/QuickConnect/Enabled`, { cache: "no-store" })
+  if (!response.ok) throw new Error(`Quick Connect indisponible (${response.status}).`)
+  return response.json() as Promise<boolean>
+}
+
+export async function initiateQuickConnect(): Promise<QuickConnectRequest> {
+  const response = await fetch(`${SERVER_URL}/QuickConnect/Initiate`, {
+    method: "POST",
+    headers: { Authorization: buildAuthHeader(getDeviceId()) },
+    cache: "no-store",
+  })
+  if (!response.ok) throw new Error(`Impossible de créer le code d’activation (${response.status}).`)
+  return response.json() as Promise<QuickConnectRequest>
+}
+
+export async function checkQuickConnect(secret: string): Promise<boolean> {
+  const response = await fetch(`${SERVER_URL}/QuickConnect/Connect?secret=${encodeURIComponent(secret)}`, { cache: "no-store" })
+  if (!response.ok) throw new Error(`Vérification du code impossible (${response.status}).`)
+  const request = await response.json() as QuickConnectRequest
+  return request.Authenticated
+}
+
+export async function authenticateWithQuickConnect(secret: string): Promise<JellyfinSession> {
+  const deviceId = getDeviceId()
+  const response = await fetch(`${SERVER_URL}/Users/AuthenticateWithQuickConnect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: buildAuthHeader(deviceId) },
+    body: JSON.stringify({ Secret: secret }),
+    cache: "no-store",
+  })
+  if (!response.ok) throw new Error(`Activation refusée (${response.status}).`)
+  const data = await response.json() as AuthenticationResponse
+  return { serverUrl: SERVER_URL, accessToken: data.AccessToken, userId: data.User.Id, userName: data.User.Name, deviceId }
+}
+
+export async function authorizeQuickConnect(session: JellyfinSession, code: string): Promise<void> {
+  const authorized = await apiFetch<boolean>(session, `/QuickConnect/Authorize?code=${encodeURIComponent(code)}`, { method: "POST" })
+  if (!authorized) throw new Error("Code invalide ou expiré.")
+}
+
 export async function authenticate(
   username: string,
   password: string,

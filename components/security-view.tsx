@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { CheckCircle2, Clock3, ShieldAlert, ShieldCheck, ArrowRight, LockKeyhole } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
+import { QuickConnectApproval } from "@/components/quick-connect-approval"
 
 const steps = [
   { label: "Session Jellyfin", detail: "Votre session est gérée par le serveur Jellyfin", state: "done" },
@@ -40,6 +41,7 @@ export function SecurityCenterView() {
       <article className="glass-panel p-5"><ShieldAlert className="size-5 text-rose-200" /><h2 className="mt-4 font-semibold">Adresse IP</h2><p className="mt-2 text-sm text-white/55">{publicIpVerified ? `Adresse détectée : ${currentIp}.` : "Adresse publique non vérifiée."} La liste locale ne filtre pas le trafic réseau.</p><Link href="/ip" className="mt-4 inline-flex text-sm font-medium text-cyan-200 hover:text-white">Détails réseau <ArrowRight className="ml-2 size-4" /></Link></article>
       <article className="glass-panel p-5"><LockKeyhole className="size-5 text-cyan-200" /><h2 className="mt-4 font-semibold">Liste IP locale</h2><p className="mt-2 text-sm text-white/55">{blockedIps.length} entrée{blockedIps.length > 1 ? "s" : ""} enregistrée{blockedIps.length > 1 ? "s" : ""} sur cet appareil. Les protections de production doivent être configurées sur le serveur ou le proxy.</p><Link href="/ip-ban-ip" className="mt-4 inline-flex text-sm font-medium text-cyan-200 hover:text-white">Gérer la liste <ArrowRight className="ml-2 size-4" /></Link></article>
     </div>
+    {session ? <QuickConnectApproval /> : <p className="mt-5 rounded-xl border border-amber-200/15 bg-amber-200/[.05] p-4 text-sm text-amber-100/75">Connectez-vous à Jellyfin sur cet ordinateur pour autoriser un appareil mobile.</p>}
   </SecurityShell>
 }
 
