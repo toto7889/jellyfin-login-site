@@ -2,15 +2,18 @@
 
 import useSWR from "swr"
 import { useMemo, useState } from "react"
-import { Loader2, Play, Radio, Tv } from "lucide-react"
+import { Loader2, Play, Radio, Search, Tv } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { VideoPlayer } from "@/components/video-player"
+import { Input } from "@/components/ui/input"
 import {
   formatClock,
   getLiveTvChannels,
   getLiveTvPrograms,
   primaryImage,
   programProgress,
+  closeLiveTvStream,
+  getLiveTvStreamUrl,
   type BaseItem,
   type JellyfinSession,
 } from "@/lib/jellyfin"
@@ -25,6 +28,8 @@ type PlayTarget = { id: string; title: string; subtitle?: string }
 
 function TvContent({ session }: { session: JellyfinSession }) {
   const [playing, setPlaying] = useState<PlayTarget | null>(null)
+  const [previewChannel, setPreviewChannel] = useState<string | null>(null)
+  const [channelQuery, setChannelQuery] = useState("")
 
   const { data, error, isLoading } = useSWR(
     ["livetv", session.userId],
@@ -37,6 +42,25 @@ function TvContent({ session }: { session: JellyfinSession }) {
       return { channels, programs }
     },
   )
+
+  const { data: livePreviewUrl } = useSWR(
+    previewChannel ? ["live-preview", session.userId, previewChannel] : null,
+    () => getLiveTvStreamUrl(session, previewChannel!),
+    { revalidateOnFocus: false, shouldRetryOnError: false },
+  )
+
+  function stopPreview(channelId: string) {
+    if (previewChannel === channelId && livePreviewUrl) void closeLiveTvStream(session, livePreviewUrl).catch(() => undefined)
+    setPreviewChannel((active) => active === channelId ? null : active)
+  }
+
+  const visibleChannels = useMemo(() => {
+    const query = channelQuery.trim().toLocaleLowerCase("fr")
+    if (!query) return data?.channels ?? []
+    return (data?.channels ?? []).filter((channel) =>
+      `${channel.Name} ${channel.ChannelNumber ?? ""}`.toLocaleLowerCase("fr").includes(query),
+    )
+  }, [channelQuery, data?.channels])
 
   const programsByChannel = useMemo(() => {
     const map = new Map<string, BaseItem[]>()
@@ -71,7 +95,7 @@ function TvContent({ session }: { session: JellyfinSession }) {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+    <div className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6">
       <div className="mb-6 flex items-center gap-3">
         <span className="jf-gradient flex size-9 items-center justify-center rounded-lg">
           <Radio className="size-5 text-white" />
@@ -79,13 +103,17 @@ function TvContent({ session }: { session: JellyfinSession }) {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Guide TV</h1>
           <p className="text-sm text-muted-foreground">
-            {data.channels.length} chaînes en direct
+            {data.channels.length} chaînes · grille des programmes en direct
           </p>
         </div>
       </div>
 
+      <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card/70 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+        <div><p className="font-medium">À l&apos;antenne maintenant</p><p className="text-sm text-muted-foreground">Parcourez les horaires et les prochains programmes de chaque chaîne.</p></div>
+        <label className="relative block w-full sm:max-w-xs"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" /><Input value={channelQuery} onChange={(event) => setChannelQuery(event.target.value)} placeholder="Filtrer les chaînes" aria-label="Filtrer les chaînes TV" className="pl-9" /></label>
+      </div>
       <ul className="flex flex-col gap-3">
-        {data.channels.map((channel) => {
+        {visibleChannels.map((channel) => {
           const logo = primaryImage(session.serverUrl, channel, 160)
           const progs = programsByChannel.get(channel.Id) ?? []
           const current = progs[0] ?? channel.CurrentProgram
@@ -102,16 +130,22 @@ function TvContent({ session }: { session: JellyfinSession }) {
               <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-stretch">
                 <button
                   type="button"
-                  onClick={() =>
+                  onMouseEnter={() => setPreviewChannel(channel.Id)}
+                  onMouseLeave={() => stopPreview(channel.Id)}
+                  onFocus={() => setPreviewChannel(channel.Id)}
+                  onBlur={() => stopPreview(channel.Id)}
+                  onClick={() => {
+                    stopPreview(channel.Id)
                     setPlaying({
                       id: channel.Id,
                       title: channel.Name,
                       subtitle: current?.Name,
                     })
-                  }
-                  className="group flex shrink-0 items-center gap-3 sm:w-48"
+                  }}
+                  className="group flex shrink-0 items-center gap-3 text-left sm:w-48"
                 >
                   <div className="relative flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-secondary">
+                    {previewChannel === channel.Id && livePreviewUrl ? <video key={channel.Id} src={livePreviewUrl} autoPlay muted playsInline aria-label={`Aperçu en direct de ${channel.Name}`} className="absolute inset-0 z-10 h-full w-full bg-black object-cover" onError={() => setPreviewChannel((id) => id === channel.Id ? null : id)} /> : null}
                     {logo ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -191,6 +225,7 @@ function TvContent({ session }: { session: JellyfinSession }) {
           )
         })}
       </ul>
+      {visibleChannels.length === 0 ? <p className="rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted-foreground">Aucune chaîne ne correspond à votre recherche.</p> : null}
 
       {playing ? (
         <VideoPlayer
@@ -198,6 +233,7 @@ function TvContent({ session }: { session: JellyfinSession }) {
           itemId={playing.id}
           title={playing.title}
           subtitle={playing.subtitle}
+          isLive
           onClose={() => setPlaying(null)}
         />
       ) : null}

@@ -256,7 +256,7 @@ export async function getItems(
 ): Promise<BaseItem[]> {
   const params = new URLSearchParams({
     Recursive: String(options.recursive ?? true),
-    Fields: "ProductionYear,Overview,Genres",
+    Fields: "ProductionYear,Overview,Genres,CommunityRating,OfficialRating",
     SortBy: options.sortBy ?? "SortName",
     SortOrder: options.sortOrder ?? "Ascending",
     Limit: String(options.limit ?? 60),
@@ -393,6 +393,31 @@ export async function getLiveTvChannels(
     `/LiveTv/Channels?${params.toString()}`,
   )
   return data.Items ?? []
+}
+
+export async function getLiveTvStreamUrl(
+  session: JellyfinSession,
+  channelId: string,
+): Promise<string> {
+  const playback = await apiFetch<{ MediaSources?: Array<{ LiveStreamId?: string; Container?: string }> }>(
+    session,
+    `/Items/${encodeURIComponent(channelId)}/PlaybackInfo?userId=${encodeURIComponent(session.userId)}&autoOpenLiveStream=true`,
+    { method: "POST", body: JSON.stringify({ UserId: session.userId, AutoOpenLiveStream: true }) },
+  )
+  const source = playback.MediaSources?.find((media) => media.LiveStreamId)
+  if (!source?.LiveStreamId) throw new Error("Le serveur Jellyfin n’a pas ouvert de flux pour cette chaîne.")
+  const params = new URLSearchParams({ api_key: session.accessToken, DeviceId: session.deviceId })
+  return `${session.serverUrl}/LiveTv/LiveStreamFiles/${encodeURIComponent(source.LiveStreamId)}/stream.${encodeURIComponent(source.Container || "ts")}?${params.toString()}`
+}
+
+export async function closeLiveTvStream(
+  session: JellyfinSession,
+  streamUrl: string,
+): Promise<void> {
+  const liveStreamId = new URL(streamUrl).pathname.match(/LiveStreamFiles\/([^/]+)\/stream\./)?.[1]
+  if (!liveStreamId) return
+  const params = new URLSearchParams({ liveStreamId: decodeURIComponent(liveStreamId) })
+  await apiFetch<void>(session, `/LiveStreams/Close?${params.toString()}`, { method: "POST" })
 }
 
 export async function getLiveTvPrograms(

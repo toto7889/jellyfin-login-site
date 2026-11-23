@@ -2,12 +2,12 @@
 
 import { ChevronLeft, Maximize, Pause, Play, Settings2, Volume2, VolumeX } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import { directStreamUrl, reportProgress, type JellyfinSession } from "@/lib/jellyfin"
+import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, reportProgress, type JellyfinSession } from "@/lib/jellyfin"
 import { useJellyfin } from "@/components/jellyfin-provider"
 
-type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; onClose: () => void }
+type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; isLive?: boolean; onClose: () => void }
 
-export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, onClose }: Props) {
+export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, isLive = false, onClose }: Props) {
   const { preferences, currentIp, blockIp } = useJellyfin()
   const idleLimit = 120
   const [idleSeconds, setIdleSeconds] = useState(0)
@@ -26,6 +26,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const [retryNonce, setRetryNonce] = useState(0)
   const [logs, setLogs] = useState<string[]>([])
   const [showLogs, setShowLogs] = useState(false)
+  const [tvMode, setTvMode] = useState(false)
   const log = (message: string) => setLogs((items) => [...items.slice(-7), `${new Date().toLocaleTimeString()} · ${message}`])
 
   function revealControls() { setControls(true); if (hideTimer.current) window.clearTimeout(hideTimer.current); hideTimer.current = window.setTimeout(() => { if (playing) setControls(false) }, 2800) }
@@ -45,6 +46,49 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     }
     return () => channel.close()
   }, [onClose])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const video = videoRef.current
+      if (!video || event.defaultPrevented || event.target instanceof HTMLInputElement) return
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "Enter"].includes(event.key)) event.preventDefault()
+      if (event.key === "ArrowLeft") seek(video.currentTime - 10)
+      if (event.key === "ArrowRight") seek(video.currentTime + 10)
+      if (event.key === "ArrowUp") { video.volume = Math.min(1, video.volume + 0.1); setMuted(false) }
+      if (event.key === "ArrowDown") { video.volume = Math.max(0, video.volume - 0.1); setMuted(video.volume === 0) }
+      if (event.key === " " || event.key === "Enter") togglePlay()
+      if (event.key === "Escape") onClose()
+      revealControls()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [onClose])
+
+  useEffect(() => {
+    if (!tvMode) return
+    let frame = 0
+    let previous = 0
+    let previousButtons: boolean[] = []
+    const poll = () => {
+      const pad = navigator.getGamepads?.().find(Boolean)
+      if (pad) {
+        const now = performance.now()
+        const pressed = pad.buttons.map((button) => button.pressed)
+        const justPressed = (index: number) => pressed[index] && !previousButtons[index]
+        if (now - previous > 250) {
+          if (justPressed(0)) togglePlay()
+          else if (justPressed(1)) onClose()
+          else if (justPressed(4) || (pad.axes[0] ?? 0) < -0.6) seek((videoRef.current?.currentTime ?? 0) - 10)
+          else if (justPressed(5) || (pad.axes[0] ?? 0) > 0.6) seek((videoRef.current?.currentTime ?? 0) + 10)
+          if (pressed.some(Boolean) || Math.abs(pad.axes[0] ?? 0) > 0.6) previous = now
+        }
+        previousButtons = pressed
+      }
+      frame = requestAnimationFrame(poll)
+    }
+    frame = requestAnimationFrame(poll)
+    return () => cancelAnimationFrame(frame)
+  }, [tvMode, onClose])
 
   useEffect(() => {
     const video = videoRef.current
@@ -97,12 +141,9 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     if (!video) return
     setReady(false); setError(null); setRetrying(false); setLogs([])
     video.crossOrigin = "anonymous"
-    const directUrl = directStreamUrl(session, itemId)
     const startSeconds = startPositionTicks ? startPositionTicks / 10_000_000 : 0
-    log("Initialisation du flux direct Jellyfin")
+    log(isLive ? "Ouverture de la session TV Jellyfin" : "Initialisation du flux direct Jellyfin")
     log("Connexion au fichier vidéo original")
-    video.src = directUrl
-    video.preload = "auto"
     const begin = () => { if (startSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = startSeconds; log("Métadonnées reçues, lecteur prêt"); if (preferences.autoplay) void video.play().catch(() => log("Lecture automatique bloquée par le navigateur")) }
     video.addEventListener("loadedmetadata", begin, { once: true })
     const fallbackTimer = window.setTimeout(() => { if (!video.readyState && !ready) { log("Délai du flux direct dépassé"); setError("Le flux direct Jellyfin ne répond pas. Vérifiez le format et les permissions du serveur.") } }, 15000)
@@ -112,12 +153,28 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     const onTime = () => { setProgress(video.currentTime); setDuration(video.duration || 0); if (video.duration && !video.paused) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: String(Math.round((video.currentTime / video.duration) * 100)) }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } }
     const onError = () => setError("Ce format n'est pas lisible par le navigateur ou le serveur.")
     video.addEventListener("canplay", onReady); video.addEventListener("playing", onPlay); video.addEventListener("pause", onPause); video.addEventListener("timeupdate", onTime); video.addEventListener("durationchange", onTime); video.addEventListener("error", onError)
+    let cancelled = false
+    let liveStreamUrl: string | null = null
+    void (async () => {
+      try {
+        const streamUrl = isLive ? await getLiveTvStreamUrl(session, itemId) : directStreamUrl(session, itemId)
+        if (cancelled) {
+          if (isLive) await closeLiveTvStream(session, streamUrl).catch(() => undefined)
+          return
+        }
+        if (isLive) liveStreamUrl = streamUrl
+        video.src = streamUrl
+        video.preload = "auto"
+      } catch (streamError) {
+        setError(streamError instanceof Error ? streamError.message : "Impossible d’ouvrir ce flux Jellyfin.")
+      }
+    })()
     const interval = window.setInterval(() => { if (!video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
-    return () => { window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeAttribute("src"); video.load() }
-  }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce])
+    return () => { cancelled = true; if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeAttribute("src"); video.load() }
+  }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce, isLive])
 
-  return <div ref={shellRef} onMouseMove={revealControls} onTouchStart={revealControls} className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-label={`Lecteur : ${title}`}>
-    <div className={`absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/85 to-transparent px-5 pb-14 pt-5 transition-opacity duration-300 ${controls ? "opacity-100" : "pointer-events-none opacity-0"}`}><button type="button" onClick={onClose} className="flex items-center gap-2 text-sm font-medium text-white/85 hover:text-white"><ChevronLeft className="size-6" /> Retour</button><div className="text-center"><h2 className="font-semibold">{title}</h2>{subtitle ? <p className="text-xs text-white/55">{subtitle}</p> : null}{language ? <p className="text-xs text-cyan-200/80">Langue : {language}</p> : null}</div><button type="button" onClick={() => setShowLogs((value) => !value)} className="flex items-center gap-2 text-xs text-white/70 hover:text-white" aria-label="Afficher les logs"><Settings2 className="size-5" /> Logs</button></div>
+  return     <div ref={shellRef} onMouseMove={revealControls} onTouchStart={revealControls} className={`fixed inset-0 z-50 flex flex-col bg-black text-white ${tvMode ? "cursor-none" : ""} animate-in fade-in zoom-in-95 duration-500`} role="dialog" aria-label={`Lecteur : ${title}`}>
+    <div className={`absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/85 to-transparent px-5 pb-14 pt-5 transition-opacity duration-300 ${controls ? "opacity-100" : "pointer-events-none opacity-0"}`}><button type="button" onClick={onClose} className="flex items-center gap-2 text-sm font-medium text-white/85 hover:text-white"><ChevronLeft className="size-6" /> Retour au catalogue</button><div className="text-center"><h2 className="font-semibold">{title}</h2>{subtitle ? <p className="text-xs text-white/55">{subtitle}</p> : null}{language ? <p className="text-xs text-cyan-200/80">Langue : {language}</p> : null}</div><div className="flex items-center gap-3"><button type="button" onClick={() => { setTvMode((value) => !value); if (!tvMode) void shellRef.current?.requestFullscreen() }} aria-pressed={tvMode} className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">{tvMode ? "Mode TV activé" : "Mode TV"}</button><button type="button" onClick={() => setShowLogs((value) => !value)} className="flex items-center gap-2 text-xs text-white/70 hover:text-white" aria-label="Afficher les logs"><Settings2 className="size-5" /> Logs</button></div></div>
     <div className="relative flex min-h-0 flex-1 items-center justify-center" onDoubleClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }}>
       <video ref={videoRef} playsInline className={`h-full w-full object-contain transition-opacity duration-500 ${ready ? "opacity-100" : "opacity-0"}`} onClick={togglePlay} />
       {showLogs ? <aside className="absolute right-5 top-20 z-40 w-[min(420px,calc(100%-2.5rem))] rounded-2xl border border-white/15 bg-black/80 p-4 font-mono text-[11px] text-white/75 shadow-2xl backdrop-blur-xl"><div className="mb-3 flex items-center justify-between font-sans text-sm text-white"><span>Diagnostic de lecture</span><button type="button" onClick={() => setShowLogs(false)} aria-label="Fermer les logs">Fermer</button></div><div className="max-h-44 overflow-auto">{logs.length ? logs.map((entry, index) => <p key={`${entry}-${index}`} className="border-b border-white/5 py-1">{entry}</p>) : <p>Aucun événement.</p>}</div></aside> : null}

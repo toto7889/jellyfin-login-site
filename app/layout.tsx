@@ -2,6 +2,7 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { JellyfinProvider } from '@/components/jellyfin-provider'
+import { OfflineSupport } from '@/components/offline-support'
 import './globals.css'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
@@ -11,8 +12,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Jellyfin Personal — Ma médiathèque',
-  description: 'Parcourez et regardez votre médiathèque Jellyfin',
+  title: { default: 'JFLX — Films, séries et TV', template: '%s · JFLX' },
+  description: 'Explorez votre médiathèque Jellyfin : films, séries, favoris et télévision en direct.',
   icons: { icon: '/favicon.svg' },
   generator: 'v0.app',
 }
@@ -34,6 +35,7 @@ export default function RootLayout({
     >
       <body className="font-sans antialiased">
         <JellyfinProvider>{children}</JellyfinProvider>
+        <OfflineSupport />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

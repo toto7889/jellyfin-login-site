@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
-import { Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch, Cast } from "lucide-react"
+import { Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch, Cast, Clapperboard } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -41,9 +41,10 @@ function AppHeaderContent() {
           <nav className="hidden items-center gap-1 xl:flex" aria-label="Navigation principale">
             <Link href="/" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Home className="mr-1.5 inline size-4" />Accueil</Link>
             <Link href="/tv" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/tv") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Tv className="mr-1.5 inline size-4" />TV en direct</Link>
+            <Link href="/genres" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/genres") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Clapperboard className="mr-1.5 inline size-4" />Genres</Link>
             <Link href="/cast" aria-current={pathname.startsWith("/cast") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/cast") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Cast className="mr-1.5 inline size-4" />Caster</Link>
             <Link href="/favorites" className="rounded-md px-3 py-2 text-sm text-white/60 transition hover:text-white"><Heart className="mr-1.5 inline size-4" />Favoris</Link>
-            <Link href="/verification" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/verification" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Fingerprint className="mr-1.5 inline size-4" />Vérification</Link><Link href="/ip" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/ip" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Ban className="mr-1.5 inline size-4" />Mon IP</Link><Link href="/admin/ip" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/admin") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><ShieldCheck className="mr-1.5 inline size-4" />Admin</Link><Link href="/releases" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/releases") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><GitBranch className="mr-1.5 inline size-4" />Releases AI</Link>
+            <Link href="/verification" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/verification" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Fingerprint className="mr-1.5 inline size-4" />Vérification</Link><Link href="/ip" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/ip" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Ban className="mr-1.5 inline size-4" />Mon IP</Link><Link href="/admin/ip" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/admin") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><ShieldCheck className="mr-1.5 inline size-4" />Admin</Link><Link href="/securite" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/securite" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><ShieldCheck className="mr-1.5 inline size-4" />Sécurité</Link><Link href="/releases" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/releases") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><GitBranch className="mr-1.5 inline size-4" />Releases AI</Link>
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <form onSubmit={onSearch} className={`${searchOpen ? "w-[min(45vw,330px)]" : "w-0 md:w-[min(24vw,230px)]"} relative overflow-hidden transition-all duration-300`}>
@@ -68,12 +69,13 @@ function AppHeaderContent() {
         </div>
       </header>
       <nav aria-label="Navigation mobile" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#090909]/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl xl:hidden">
-        <div className="mx-auto grid max-w-xl grid-cols-6">
+        <div className="mx-auto grid max-w-2xl grid-cols-7">
           <MobileNavLink href="/" active={pathname === "/"} label="Accueil" icon={<Home />} />
           <MobileNavLink href="/tv" active={pathname.startsWith("/tv")} label="Direct" icon={<Tv />} />
           <MobileNavLink href="/cast" active={pathname.startsWith("/cast")} label="Caster" icon={<Cast />} />
           <MobileNavLink href="/favorites" active={pathname.startsWith("/favorites")} label="Favoris" icon={<Heart />} />
           <MobileNavLink href="/search" active={pathname.startsWith("/search")} label="Recherche" icon={<Search />} />
+          <MobileNavLink href="/securite" active={pathname.startsWith("/securite")} label="Sécurité" icon={<ShieldCheck />} />
           <MobileNavLink href="/settings" active={pathname.startsWith("/settings")} label="Réglages" icon={<Settings />} />
         </div>
       </nav>
