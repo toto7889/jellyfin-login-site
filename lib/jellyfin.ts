@@ -466,6 +466,20 @@ export async function getPlaybackSessions(
   )
 }
 
+export async function startPlaybackOnSession(
+  session: JellyfinSession,
+  sessionId: string,
+  itemId: string,
+  command: "PlayNow" | "PlayNext" = "PlayNow",
+): Promise<void> {
+  const params = new URLSearchParams({ playCommand: command, itemIds: itemId })
+  await apiFetch<void>(
+    session,
+    `/Sessions/${encodeURIComponent(sessionId)}/Playing?${params.toString()}`,
+    { method: "POST" },
+  )
+}
+
 export async function sendPlaybackCommand(
   session: JellyfinSession,
   sessionId: string,
