@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
-import { Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch, Cast, Clapperboard } from "lucide-react"
+import { CalendarDays, Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch, Cast, Clapperboard, Film } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -46,7 +46,9 @@ function AppHeaderContent() {
           </Link>
           <nav className="hidden items-center gap-1 xl:flex" aria-label="Navigation principale">
             <Link href="/" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Home className="mr-1.5 inline size-4" />Accueil</Link>
-            <Link href="/tv" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/tv") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Tv className="mr-1.5 inline size-4" />TV en direct</Link>
+            <Link href="/tv" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/tv" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Tv className="mr-1.5 inline size-4" />Hub TV</Link>
+            <Link href="/films" aria-current={pathname.startsWith("/films") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/films") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Film className="mr-1.5 inline size-4" />Hub Films</Link>
+            <Link href="/guide-tv" aria-current={pathname.startsWith("/guide-tv") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/guide-tv") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><CalendarDays className="mr-1.5 inline size-4" />Guide TV</Link>
             <Link href="/genres" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/genres") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Clapperboard className="mr-1.5 inline size-4" />Genres</Link>
             <Link href="/cast" aria-current={pathname.startsWith("/cast") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/cast") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Cast className="mr-1.5 inline size-4" />Caster</Link>
             <Link href="/favorites" className="rounded-md px-3 py-2 text-sm text-white/60 transition hover:text-white"><Heart className="mr-1.5 inline size-4" />Favoris</Link>
@@ -75,9 +77,11 @@ function AppHeaderContent() {
         </div>
       </header>
       <nav aria-label="Navigation mobile" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#090909]/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl xl:hidden">
-        <div className="mx-auto grid max-w-2xl grid-cols-7">
+        <div className="mx-auto grid max-w-3xl grid-cols-9">
           <MobileNavLink href="/" active={pathname === "/"} label="Accueil" icon={<Home />} />
-          <MobileNavLink href="/tv" active={pathname.startsWith("/tv")} label="Direct" icon={<Tv />} />
+          <MobileNavLink href="/tv" active={pathname === "/tv"} label="Hub TV" icon={<Tv />} />
+          <MobileNavLink href="/films" active={pathname.startsWith("/films")} label="Films" icon={<Film />} />
+          <MobileNavLink href="/guide-tv" active={pathname.startsWith("/guide-tv")} label="Guide TV" icon={<CalendarDays />} />
           <MobileNavLink href="/cast" active={pathname.startsWith("/cast")} label="Caster" icon={<Cast />} />
           <MobileNavLink href="/favorites" active={pathname.startsWith("/favorites")} label="Favoris" icon={<Heart />} />
           <MobileNavLink href="/search" active={pathname.startsWith("/search")} label="Recherche" icon={<Search />} />

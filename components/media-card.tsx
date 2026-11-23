@@ -47,7 +47,7 @@ export function MediaCard({ item, session, variant = "poster" }: MediaCardProps)
   function startPreview() {
     if (!canPreview || previewUrl) return
     hoverTimer.current = window.setTimeout(() => {
-      const url = new URL(directStreamUrl(session, item.Id))
+      const url = new URL(directStreamUrl(session, item.Id, { startTimeTicks: resumeTicks }))
       url.searchParams.set("static", "true")
       setPreviewUrl(url.toString())
     }, 450)

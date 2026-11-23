@@ -271,6 +271,14 @@ export async function getResumeItems(
   return data.Items ?? []
 }
 
+export async function getLocalTrailers(session: JellyfinSession, itemId: string): Promise<BaseItem[]> {
+  const trailers = await apiFetch<BaseItem[]>(
+    session,
+    `/Items/${encodeURIComponent(itemId)}/LocalTrailers?userId=${encodeURIComponent(session.userId)}`,
+  )
+  return trailers ?? []
+}
+
 export async function getLatest(
   session: JellyfinSession,
   parentId?: string,
@@ -426,18 +434,30 @@ export function personImage(
 export async function getLiveTvChannels(
   session: JellyfinSession,
 ): Promise<BaseItem[]> {
-  const params = new URLSearchParams({
-    userId: session.userId,
-    EnableImages: "true",
-    Fields: "CurrentProgram",
-    SortBy: "SortName",
-    Limit: "200",
-  })
-  const data = await apiFetch<ItemsResponse>(
-    session,
-    `/LiveTv/Channels?${params.toString()}`,
-  )
-  return data.Items ?? []
+  const pageSize = 200
+  const channels: BaseItem[] = []
+  let startIndex = 0
+
+  while (true) {
+    const params = new URLSearchParams({
+      userId: session.userId,
+      EnableImages: "true",
+      Fields: "CurrentProgram",
+      SortBy: "SortName",
+      StartIndex: String(startIndex),
+      Limit: String(pageSize),
+    })
+    const data = await apiFetch<ItemsResponse>(
+      session,
+      `/LiveTv/Channels?${params.toString()}`,
+    )
+    const page = data.Items ?? []
+    channels.push(...page)
+    startIndex += page.length
+    if (!page.length || page.length < pageSize || (data.TotalRecordCount && startIndex >= data.TotalRecordCount)) break
+  }
+
+  return channels
 }
 
 export async function getLiveTvStreamUrl(
@@ -468,10 +488,11 @@ export async function closeLiveTvStream(
 export async function getLiveTvPrograms(
   session: JellyfinSession,
   channelIds: string[],
+  horizonHours = 6,
 ): Promise<BaseItem[]> {
   if (!channelIds.length) return []
   const now = new Date()
-  const end = new Date(now.getTime() + 6 * 60 * 60 * 1000) // 6h ahead
+  const end = new Date(now.getTime() + horizonHours * 60 * 60 * 1000)
   const data = await apiFetch<ItemsResponse>(session, `/LiveTv/Programs`, {
     method: "POST",
     body: JSON.stringify({
@@ -480,7 +501,9 @@ export async function getLiveTvPrograms(
       MaxStartDate: end.toISOString(),
       MinEndDate: now.toISOString(),
       SortBy: ["StartDate"],
-      EnableImages: false,
+      EnableImages: true,
+      EnableImageTypes: ["Primary", "Thumb", "Backdrop"],
+      Fields: ["Overview", "Genres", "OfficialRating", "CommunityRating", "ProductionYear", "RunTimeTicks"],
     }),
   })
   return data.Items ?? []
@@ -539,6 +562,7 @@ export type PlaybackStreamOptions = {
   maxStreamingBitrate?: number
   maxWidth?: number
   maxHeight?: number
+  startTimeTicks?: number
 }
 
 export function directStreamUrl(session: JellyfinSession, itemId: string, options: PlaybackStreamOptions = {}): string {
@@ -548,6 +572,7 @@ export function directStreamUrl(session: JellyfinSession, itemId: string, option
   if (options.maxStreamingBitrate) params.set("MaxStreamingBitrate", String(options.maxStreamingBitrate))
   if (options.maxWidth) params.set("MaxWidth", String(options.maxWidth))
   if (options.maxHeight) params.set("MaxHeight", String(options.maxHeight))
+  if (options.startTimeTicks != null && options.startTimeTicks > 0) params.set("StartTimeTicks", String(options.startTimeTicks))
   return `${session.serverUrl}/Videos/${itemId}/stream?${params.toString()}`
 }
 

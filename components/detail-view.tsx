@@ -10,6 +10,7 @@ import {
   backdropImage,
   getEpisodes,
   getItem,
+  getLocalTrailers,
   getSeasons,
   personImage,
   primaryImage,
@@ -31,6 +32,8 @@ type PlayTarget = {
   backdrop?: string | null
   positionTicks?: number
   language?: string
+  previewMode?: boolean
+  previewDurationSeconds?: number
 }
 
 function DetailContent({
@@ -55,6 +58,21 @@ function DetailContent({
       return { item, seasons: [] as BaseItem[] }
     },
   )
+  const { data: localTrailers, isLoading: trailersLoading } = useSWR(
+    data?.item && (data.item.Type === "Movie" || data.item.Type === "Series")
+      ? ["local-trailers", session.userId, itemId]
+      : null,
+    () => getLocalTrailers(session, itemId),
+    { shouldRetryOnError: false },
+  )
+  const previewSeasonId = data?.seasons[0]?.Id
+  const { data: previewEpisodes, isLoading: previewEpisodesLoading } = useSWR(
+    data?.item.Type === "Series" && previewSeasonId
+      ? ["preview-episodes", session.userId, itemId, previewSeasonId]
+      : null,
+    () => getEpisodes(session, itemId, previewSeasonId!),
+    { shouldRetryOnError: false },
+  )
 
   if (isLoading) {
     return (
@@ -76,7 +94,23 @@ function DetailContent({
   const backdrop = backdropImage(session.serverUrl, item, 1600)
   const poster = primaryImage(session.serverUrl, item, 400)
   const isSeries = item.Type === "Series"
+  const previewItem = localTrailers?.[0] ?? previewEpisodes?.[0] ?? (isSeries ? undefined : item)
+  const isLocalTrailer = Boolean(localTrailers?.[0])
   const resumeTicks = item.UserData?.PlaybackPositionTicks ?? 0
+
+  function openPreview() {
+    if (!previewItem) return
+    setPlaying({
+      id: previewItem.Id,
+      title: item.Name,
+      subtitle: isLocalTrailer ? "Bande-annonce" : `Aperçu · ${previewItem.Name}`,
+      backdrop: backdropImage(session.serverUrl, previewItem, 1600) ?? backdrop,
+      positionTicks: 0,
+      language: item.OriginalLanguage ?? item.Language,
+      previewMode: true,
+      previewDurationSeconds: isLocalTrailer ? undefined : 30,
+    })
+  }
   const cast = (item.People ?? []).filter(
     (p) => p.Type === "Actor" || p.Type === "GuestStar",
   )
@@ -166,6 +200,7 @@ function DetailContent({
                   <Play className="size-4 fill-current" />
                   {resumeTicks > 0 ? "Reprendre" : "Lire"}
                 </Button>
+                {previewItem ? <Button size="lg" variant="outline" onClick={openPreview}><Play className="size-4" />{isLocalTrailer ? "Bande-annonce" : "Aperçu"}</Button> : null}
                 <Button
                   size="lg"
                   variant="outline"
@@ -191,6 +226,7 @@ function DetailContent({
                 </Button>
               </div>
             ) : null}
+            {isSeries && previewItem ? <Button size="lg" variant="outline" onClick={openPreview}><Play className="size-4" />{isLocalTrailer ? "Bande-annonce" : "Aperçu du premier épisode"}</Button> : null}
           </div>
         </div>
 
@@ -249,6 +285,8 @@ function DetailContent({
           backdropUrl={playing.backdrop ?? backdrop}
           startPositionTicks={playing.positionTicks}
           language={playing.language}
+          previewMode={playing.previewMode}
+          previewDurationSeconds={playing.previewDurationSeconds}
           onClose={() => setPlaying(null)}
         />
       ) : null}
