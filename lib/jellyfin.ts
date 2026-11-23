@@ -271,6 +271,14 @@ export async function getResumeItems(
   return data.Items ?? []
 }
 
+export async function getLocalTrailers(session: JellyfinSession, itemId: string): Promise<BaseItem[]> {
+  const trailers = await apiFetch<BaseItem[]>(
+    session,
+    `/Items/${encodeURIComponent(itemId)}/LocalTrailers?userId=${encodeURIComponent(session.userId)}`,
+  )
+  return trailers ?? []
+}
+
 export async function getLatest(
   session: JellyfinSession,
   parentId?: string,
@@ -334,7 +342,7 @@ export async function getItem(
   itemId: string,
 ): Promise<BaseItem> {
   const params = new URLSearchParams({
-    Fields: "People,Genres,Overview,Studios,Taglines",
+    Fields: "People,Genres,Overview,Studios,Taglines,UserData,ProductionYear,RunTimeTicks,OriginalTitle",
   })
   return apiFetch<BaseItem>(
     session,
@@ -348,7 +356,7 @@ export async function getSeasons(
 ): Promise<BaseItem[]> {
   const data = await apiFetch<ItemsResponse>(
     session,
-    `/Shows/${seriesId}/Seasons?userId=${session.userId}&Fields=ProductionYear`,
+    `/Shows/${seriesId}/Seasons?userId=${session.userId}&Fields=ProductionYear,UserData,IndexNumber,Overview`,
   )
   return data.Items ?? []
 }
@@ -356,11 +364,16 @@ export async function getSeasons(
 export async function getEpisodes(
   session: JellyfinSession,
   seriesId: string,
-  seasonId: string,
+  seasonId?: string,
 ): Promise<BaseItem[]> {
+  const params = new URLSearchParams({
+    userId: session.userId,
+    Fields: "Overview,ProductionYear,UserData,RunTimeTicks,IndexNumber,ParentIndexNumber,SeriesName",
+  })
+  if (seasonId) params.set("seasonId", seasonId)
   const data = await apiFetch<ItemsResponse>(
     session,
-    `/Shows/${seriesId}/Episodes?userId=${session.userId}&seasonId=${seasonId}&Fields=Overview,ProductionYear`,
+    `/Shows/${seriesId}/Episodes?${params.toString()}`,
   )
   return data.Items ?? []
 }
@@ -426,18 +439,29 @@ export function personImage(
 export async function getLiveTvChannels(
   session: JellyfinSession,
 ): Promise<BaseItem[]> {
-  const params = new URLSearchParams({
-    userId: session.userId,
-    EnableImages: "true",
-    Fields: "CurrentProgram",
-    SortBy: "SortName",
-    Limit: "200",
-  })
-  const data = await apiFetch<ItemsResponse>(
-    session,
-    `/LiveTv/Channels?${params.toString()}`,
+  const pageSize = 200
+  const fetchPage = async (startIndex: number) => {
+    const params = new URLSearchParams({
+      userId: session.userId,
+      EnableImages: "true",
+      Fields: "CurrentProgram",
+      SortBy: "SortName",
+      StartIndex: String(startIndex),
+      Limit: String(pageSize),
+    })
+    return apiFetch<ItemsResponse>(session, `/LiveTv/Channels?${params.toString()}`)
+  }
+
+  const firstPage = await fetchPage(0)
+  const firstChannels = firstPage.Items ?? []
+  const total = firstPage.TotalRecordCount || firstChannels.length
+  const remainingPages = Math.ceil(Math.max(0, total - firstChannels.length) / pageSize)
+  if (!remainingPages) return firstChannels
+
+  const pages = await Promise.all(
+    Array.from({ length: remainingPages }, (_, index) => fetchPage((index + 1) * pageSize)),
   )
-  return data.Items ?? []
+  return [...firstChannels, ...pages.flatMap((page) => page.Items ?? [])]
 }
 
 export async function getLiveTvStreamUrl(
@@ -468,10 +492,11 @@ export async function closeLiveTvStream(
 export async function getLiveTvPrograms(
   session: JellyfinSession,
   channelIds: string[],
+  horizonHours = 6,
 ): Promise<BaseItem[]> {
   if (!channelIds.length) return []
   const now = new Date()
-  const end = new Date(now.getTime() + 6 * 60 * 60 * 1000) // 6h ahead
+  const end = new Date(now.getTime() + horizonHours * 60 * 60 * 1000)
   const data = await apiFetch<ItemsResponse>(session, `/LiveTv/Programs`, {
     method: "POST",
     body: JSON.stringify({
@@ -480,7 +505,9 @@ export async function getLiveTvPrograms(
       MaxStartDate: end.toISOString(),
       MinEndDate: now.toISOString(),
       SortBy: ["StartDate"],
-      EnableImages: false,
+      EnableImages: true,
+      EnableImageTypes: ["Primary", "Thumb", "Backdrop"],
+      Fields: ["Overview", "Genres", "OfficialRating", "CommunityRating", "ProductionYear", "RunTimeTicks"],
     }),
   })
   return data.Items ?? []
@@ -514,16 +541,42 @@ export function streamUrl(session: JellyfinSession, itemId: string): string {
   return `${session.serverUrl}/Videos/${itemId}/master.m3u8?${params.toString()}`
 }
 
-// Direct (static) stream — used as a fallback for natively supported files.
-export function directStreamUrl(
-  session: JellyfinSession,
-  itemId: string,
-): string {
-  const params = new URLSearchParams({
-    api_key: session.accessToken,
-    DeviceId: session.deviceId,
-    static: "true",
-  })
+export type JellyfinMediaStream = {
+  Index: number
+  Type: "Video" | "Audio" | "Subtitle"
+  Language?: string
+  DisplayTitle?: string
+  Codec?: string
+  IsDefault?: boolean
+  IsExternal?: boolean
+}
+
+export async function getPlaybackStreams(session: JellyfinSession, itemId: string): Promise<JellyfinMediaStream[]> {
+  const info = await apiFetch<{ MediaSources?: Array<{ MediaStreams?: JellyfinMediaStream[] }> }>(
+    session,
+    `/Items/${encodeURIComponent(itemId)}/PlaybackInfo?userId=${encodeURIComponent(session.userId)}`,
+    { method: "POST", body: JSON.stringify({ UserId: session.userId, DeviceProfile: { MaxStreamingBitrate: 20000000 } }) },
+  )
+  return info.MediaSources?.[0]?.MediaStreams ?? []
+}
+
+export type PlaybackStreamOptions = {
+  audioStreamIndex?: number
+  subtitleStreamIndex?: number | null
+  maxStreamingBitrate?: number
+  maxWidth?: number
+  maxHeight?: number
+  startTimeTicks?: number
+}
+
+export function directStreamUrl(session: JellyfinSession, itemId: string, options: PlaybackStreamOptions = {}): string {
+  const params = new URLSearchParams({ api_key: session.accessToken, DeviceId: session.deviceId })
+  if (options.audioStreamIndex != null) params.set("AudioStreamIndex", String(options.audioStreamIndex))
+  if (options.subtitleStreamIndex != null) params.set("SubtitleStreamIndex", String(options.subtitleStreamIndex))
+  if (options.maxStreamingBitrate) params.set("MaxStreamingBitrate", String(options.maxStreamingBitrate))
+  if (options.maxWidth) params.set("MaxWidth", String(options.maxWidth))
+  if (options.maxHeight) params.set("MaxHeight", String(options.maxHeight))
+  if (options.startTimeTicks != null && options.startTimeTicks > 0) params.set("StartTimeTicks", String(options.startTimeTicks))
   return `${session.serverUrl}/Videos/${itemId}/stream?${params.toString()}`
 }
 

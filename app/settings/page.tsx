@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import useSWR from "swr"
-import { Loader2, Monitor, Play, RefreshCw, Smartphone, Square, Volume2 } from "lucide-react"
+import { Loader2, LogOut, Monitor, Play, RefreshCw, Smartphone, Square, Volume2, X } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { Button } from "@/components/ui/button"
 import { getDeviceId, getPlaybackSessions, sendPlaybackCommand, seekPlaybackSession, type JellyfinPlaybackSession } from "@/lib/jellyfin"
@@ -10,6 +10,7 @@ import { getDeviceId, getPlaybackSessions, sendPlaybackCommand, seekPlaybackSess
 export default function SettingsPage() {
   const { session, preferences, updatePreferences, logout } = useJellyfin()
   const [commandError, setCommandError] = useState<string | null>(null)
+  const [confirmLogout, setConfirmLogout] = useState(false)
   const { data: sessions, error, isLoading, mutate } = useSWR(
     session ? ["playback-sessions", session.userId] : null,
     () => getPlaybackSessions(session!),
@@ -76,7 +77,8 @@ export default function SettingsPage() {
         <label className="flex min-h-14 items-center justify-between gap-4 border-b border-border py-3"><span><strong className="text-sm">Réduire les animations</strong><small className="mt-1 block text-xs text-muted-foreground">Limiter les mouvements de l’interface</small></span><input type="checkbox" checked={preferences.reduceMotion} onChange={(event) => updatePreferences({ reduceMotion: event.target.checked })} className="size-5 accent-primary" /></label>
         <div className="grid gap-3 pt-4 text-sm sm:grid-cols-2"><p className="flex items-center gap-2 text-muted-foreground"><Volume2 className="size-4" />Audio : contrôles natifs du navigateur</p><p className="flex items-center gap-2 text-muted-foreground"><Monitor className="size-4" />Plein écran : {fullscreenAvailable ? "pris en charge" : "non disponible"}</p><p className="flex items-center gap-2 text-muted-foreground"><Smartphone className="size-4" />Commandes multimédias : {mediaSessionAvailable ? "API disponible" : "non disponible dans ce navigateur"}</p></div>
       </section>
-      <Button variant="outline" onClick={logout} className="mt-5 text-destructive">Se déconnecter</Button>
+      <Button variant="outline" onClick={() => setConfirmLogout(true)} className="mt-5 text-destructive">Se déconnecter</Button>
+      {confirmLogout ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmLogout(false) }}><section role="alertdialog" aria-modal="true" aria-labelledby="settings-logout-title" className="w-full max-w-md overflow-hidden rounded-3xl border border-border bg-card shadow-2xl"><div className="h-1 bg-gradient-to-r from-destructive via-primary to-transparent" /><div className="p-6 sm:p-8"><div className="flex items-start gap-4"><div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-destructive/10 text-destructive"><LogOut className="size-5" /></div><div className="min-w-0 flex-1"><p className="text-xs font-semibold uppercase tracking-[.18em] text-muted-foreground">Session JFLX</p><h2 id="settings-logout-title" className="mt-1 text-xl font-semibold">Quitter votre compte ?</h2><p className="mt-2 text-sm text-muted-foreground">La session de <strong className="text-foreground">{session?.userName ?? "cet utilisateur"}</strong> sera supprimée de cet appareil.</p></div><button type="button" onClick={() => setConfirmLogout(false)} className="rounded-full p-2 text-muted-foreground hover:bg-muted" aria-label="Fermer"><X className="size-5" /></button></div><div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button variant="ghost" onClick={() => setConfirmLogout(false)}>Garder ma session</Button><Button variant="destructive" onClick={logout}><LogOut className="size-4" />Se déconnecter</Button></div></div></section></div> : null}
     </div>
   </main>
 }

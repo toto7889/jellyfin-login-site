@@ -10,6 +10,7 @@ import {
   backdropImage,
   getEpisodes,
   getItem,
+  getLocalTrailers,
   getSeasons,
   personImage,
   primaryImage,
@@ -31,6 +32,8 @@ type PlayTarget = {
   backdrop?: string | null
   positionTicks?: number
   language?: string
+  previewMode?: boolean
+  previewDurationSeconds?: number
 }
 
 function DetailContent({
@@ -55,6 +58,18 @@ function DetailContent({
       return { item, seasons: [] as BaseItem[] }
     },
   )
+  const { data: localTrailers, isLoading: trailersLoading } = useSWR(
+    data?.item && (data.item.Type === "Movie" || data.item.Type === "Series")
+      ? ["local-trailers", session.userId, itemId]
+      : null,
+    () => getLocalTrailers(session, itemId),
+    { shouldRetryOnError: false },
+  )
+  const { data: previewEpisodes, isLoading: previewEpisodesLoading } = useSWR(
+    data?.item.Type === "Series" ? ["preview-episodes", session.userId, itemId] : null,
+    () => getEpisodes(session, itemId),
+    { shouldRetryOnError: false },
+  )
 
   if (isLoading) {
     return (
@@ -76,7 +91,26 @@ function DetailContent({
   const backdrop = backdropImage(session.serverUrl, item, 1600)
   const poster = primaryImage(session.serverUrl, item, 400)
   const isSeries = item.Type === "Series"
+  const resumedEpisode = previewEpisodes?.find((episode) => (episode.UserData?.PlaybackPositionTicks ?? 0) > 0)
+  const previewItem = isSeries
+    ? resumedEpisode ?? localTrailers?.[0] ?? previewEpisodes?.[0]
+    : localTrailers?.[0] ?? item
+  const isLocalTrailer = Boolean(localTrailers?.[0] && !resumedEpisode)
   const resumeTicks = item.UserData?.PlaybackPositionTicks ?? 0
+
+  function openPreview() {
+    if (!previewItem) return
+    setPlaying({
+      id: previewItem.Id,
+      title: item.Name,
+      subtitle: isLocalTrailer ? "Bande-annonce" : `Aperçu · ${previewItem.Name}`,
+      backdrop: backdropImage(session.serverUrl, previewItem, 1600) ?? backdrop,
+      positionTicks: resumedEpisode?.Id === previewItem.Id ? resumedEpisode.UserData?.PlaybackPositionTicks : 0,
+      language: item.OriginalLanguage ?? item.Language,
+      previewMode: true,
+      previewDurationSeconds: isLocalTrailer ? undefined : 30,
+    })
+  }
   const cast = (item.People ?? []).filter(
     (p) => p.Type === "Actor" || p.Type === "GuestStar",
   )
@@ -166,6 +200,7 @@ function DetailContent({
                   <Play className="size-4 fill-current" />
                   {resumeTicks > 0 ? "Reprendre" : "Lire"}
                 </Button>
+                {previewItem ? <Button size="lg" variant="outline" onClick={openPreview}><Play className="size-4" />{isLocalTrailer ? "Bande-annonce" : "Aperçu"}</Button> : null}
                 <Button
                   size="lg"
                   variant="outline"
@@ -191,6 +226,7 @@ function DetailContent({
                 </Button>
               </div>
             ) : null}
+            {isSeries && previewItem && !previewEpisodesLoading ? <Button size="lg" variant="outline" onClick={openPreview}><Play className="size-4" />{isLocalTrailer ? "Bande-annonce" : resumedEpisode ? "Reprendre l’épisode" : "Aperçu d’un épisode"}</Button> : null}
           </div>
         </div>
 
@@ -249,6 +285,8 @@ function DetailContent({
           backdropUrl={playing.backdrop ?? backdrop}
           startPositionTicks={playing.positionTicks}
           language={playing.language}
+          previewMode={playing.previewMode}
+          previewDurationSeconds={playing.previewDurationSeconds}
           onClose={() => setPlaying(null)}
         />
       ) : null}
@@ -329,20 +367,28 @@ function SeasonsSection({
 
   return (
     <div className="mt-10 flex flex-col gap-4">
-      <h2 className="text-lg font-semibold">Épisodes</h2>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">Saisons et épisodes</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Choisissez une saison pour parcourir les épisodes et reprendre votre lecture.</p>
+        </div>
+        {episodes?.length ? <span className="text-sm text-muted-foreground">{episodes.length} épisode{episodes.length > 1 ? "s" : ""}</span> : null}
+      </div>
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Saisons">
         {seasons.map((s) => (
           <button
             key={s.Id}
             type="button"
             onClick={() => setActiveSeason(s.Id)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+            role="tab"
+            aria-selected={activeSeason === s.Id}
+            className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
               activeSeason === s.Id
-                ? "bg-primary text-primary-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm"
                 : "bg-secondary text-secondary-foreground hover:bg-secondary/70"
             }`}
           >
-            {s.Name}
+            {s.Name}{s.UserData?.PlayedPercentage === 100 ? " · Terminée" : ""}
           </button>
         ))}
       </div>
@@ -393,11 +439,11 @@ function SeasonsSection({
                       {ep.IndexNumber != null ? `${ep.IndexNumber}. ` : ""}
                       {ep.Name}
                     </p>
-                    {ep.RunTimeTicks ? (
-                      <p className="text-xs text-muted-foreground">
-                        {ticksToTime(ep.RunTimeTicks)}
-                      </p>
-                    ) : null}
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      {ep.RunTimeTicks ? <span>{ticksToTime(ep.RunTimeTicks)}</span> : null}
+                      {ep.UserData?.PlaybackPositionTicks ? <span className="font-medium text-primary">Vous avez déjà commencé cet épisode · Reprendre</span> : ep.UserData?.Played ? <span>Épisode terminé</span> : null}
+                    </div>
+                    {(ep.UserData?.PlayedPercentage ?? 0) > 0 && (ep.UserData?.PlayedPercentage ?? 0) < 100 ? <div className="mt-2 h-1 w-full max-w-56 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary" style={{ width: `${ep.UserData?.PlayedPercentage}%` }} /></div> : null}
                     {ep.Overview ? (
                       <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                         {ep.Overview}

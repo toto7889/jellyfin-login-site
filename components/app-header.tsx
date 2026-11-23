@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
-import { Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch, Cast, Clapperboard } from "lucide-react"
+import { CalendarDays, Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch, Cast, Clapperboard, Film } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -20,6 +20,12 @@ function AppHeaderContent() {
   const [loggingOut, setLoggingOut] = useState(false)
 
   useEffect(() => setQuery(searchParams.get("q") ?? ""), [searchParams])
+  useEffect(() => {
+    if (!confirmLogout) return
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape" && !loggingOut) setConfirmLogout(false) }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [confirmLogout, loggingOut])
   function onSearch(e: React.FormEvent) {
     e.preventDefault()
     const q = query.trim()
@@ -40,7 +46,9 @@ function AppHeaderContent() {
           </Link>
           <nav className="hidden items-center gap-1 xl:flex" aria-label="Navigation principale">
             <Link href="/" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Home className="mr-1.5 inline size-4" />Accueil</Link>
-            <Link href="/tv" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/tv") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Tv className="mr-1.5 inline size-4" />TV en direct</Link>
+            <Link href="/tv" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/tv" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Tv className="mr-1.5 inline size-4" />Hub TV</Link>
+            <Link href="/films" aria-current={pathname.startsWith("/films") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/films") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Film className="mr-1.5 inline size-4" />Hub Films</Link>
+            <Link href="/guide-tv" aria-current={pathname.startsWith("/guide-tv") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/guide-tv") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><CalendarDays className="mr-1.5 inline size-4" />Guide TV</Link>
             <Link href="/genres" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/genres") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Clapperboard className="mr-1.5 inline size-4" />Genres</Link>
             <Link href="/cast" aria-current={pathname.startsWith("/cast") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/cast") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Cast className="mr-1.5 inline size-4" />Caster</Link>
             <Link href="/favorites" className="rounded-md px-3 py-2 text-sm text-white/60 transition hover:text-white"><Heart className="mr-1.5 inline size-4" />Favoris</Link>
@@ -69,9 +77,11 @@ function AppHeaderContent() {
         </div>
       </header>
       <nav aria-label="Navigation mobile" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#090909]/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl xl:hidden">
-        <div className="mx-auto grid max-w-2xl grid-cols-7">
+        <div className="mx-auto grid max-w-3xl grid-cols-9">
           <MobileNavLink href="/" active={pathname === "/"} label="Accueil" icon={<Home />} />
-          <MobileNavLink href="/tv" active={pathname.startsWith("/tv")} label="Direct" icon={<Tv />} />
+          <MobileNavLink href="/tv" active={pathname === "/tv"} label="Hub TV" icon={<Tv />} />
+          <MobileNavLink href="/films" active={pathname.startsWith("/films")} label="Films" icon={<Film />} />
+          <MobileNavLink href="/guide-tv" active={pathname.startsWith("/guide-tv")} label="Guide TV" icon={<CalendarDays />} />
           <MobileNavLink href="/cast" active={pathname.startsWith("/cast")} label="Caster" icon={<Cast />} />
           <MobileNavLink href="/favorites" active={pathname.startsWith("/favorites")} label="Favoris" icon={<Heart />} />
           <MobileNavLink href="/search" active={pathname.startsWith("/search")} label="Recherche" icon={<Search />} />
@@ -79,7 +89,7 @@ function AppHeaderContent() {
           <MobileNavLink href="/settings" active={pathname.startsWith("/settings")} label="Réglages" icon={<Settings />} />
         </div>
       </nav>
-      {confirmLogout ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md animate-in fade-in duration-300"><div role="dialog" aria-modal="true" className={`w-full max-w-sm rounded-2xl border border-white/10 bg-[#191919] p-6 shadow-[0_0_80px_rgba(229,9,20,.18)] animate-in zoom-in-95 duration-300 ${loggingOut ? "scale-95 opacity-0 transition-all duration-700" : ""}`}><div className="flex items-start justify-between"><div><div className="mb-4 h-1 w-12 rounded-full bg-[#e50914] shadow-[0_0_18px_#e50914]" /><h2 className="text-lg font-semibold text-white">Se déconnecter ?</h2><p className="mt-2 text-sm text-white/55">Votre session sera supprimée de cet appareil.</p></div><button type="button" onClick={() => setConfirmLogout(false)} className="text-white/50 transition hover:rotate-90 hover:text-white" aria-label="Fermer" disabled={loggingOut}><X className="size-5" /></button></div><div className="mt-6 flex justify-end gap-2"><Button variant="ghost" onClick={() => setConfirmLogout(false)} disabled={loggingOut}>Annuler</Button><Button onClick={doLogout} disabled={loggingOut} className="min-w-32 bg-[#e50914] text-white shadow-[0_0_20px_rgba(229,9,20,.25)] transition hover:scale-[1.02] hover:bg-[#f6121d]">{loggingOut ? "À bientôt…" : "Déconnexion"}</Button></div></div></div> : null}
+      {confirmLogout ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-in fade-in duration-200" onMouseDown={(event) => { if (event.target === event.currentTarget && !loggingOut) setConfirmLogout(false) }}><div role="alertdialog" aria-modal="true" aria-labelledby="logout-title" aria-describedby="logout-description" className={`w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#141414] shadow-[0_24px_100px_rgba(0,0,0,.65)] animate-in zoom-in-95 duration-300 ${loggingOut ? "scale-95 opacity-0 transition-all duration-700" : ""}`}><div className="h-1 bg-gradient-to-r from-[#e50914] via-[#f04b50] to-transparent" /><div className="p-6 sm:p-8"><div className="flex items-start gap-4"><div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[#e50914]/10 text-[#ff6b70]"><LogOut className="size-5" /></div><div className="min-w-0 flex-1"><p className="text-xs font-semibold uppercase tracking-[.18em] text-white/40">Session JFLX</p><h2 id="logout-title" className="mt-1 text-xl font-semibold text-white">Quitter votre compte ?</h2><p id="logout-description" className="mt-2 text-sm leading-relaxed text-white/55">Vous êtes connecté en tant que <strong className="font-medium text-white/85">{session?.userName ?? "utilisateur"}</strong>. La session sera supprimée de cet appareil.</p></div><button type="button" onClick={() => setConfirmLogout(false)} className="rounded-full p-2 text-white/50 transition hover:bg-white/10 hover:text-white" aria-label="Fermer la confirmation" disabled={loggingOut}><X className="size-5" /></button></div><div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button variant="ghost" onClick={() => setConfirmLogout(false)} disabled={loggingOut} className="text-white/70 hover:bg-white/10 hover:text-white">Garder ma session</Button><Button onClick={doLogout} disabled={loggingOut} className="min-w-36 bg-[#e50914] text-white shadow-[0_0_20px_rgba(229,9,20,.2)] transition hover:bg-[#f6121d]">{loggingOut ? <span className="flex items-center gap-2"><span className="size-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />Déconnexion…</span> : "Se déconnecter"}</Button></div>{loggingOut ? <div className="mt-4 h-1 overflow-hidden rounded-full bg-white/10"><div className="h-full w-full origin-left animate-pulse bg-[#e50914]" /></div> : null}</div></div></div> : null}
     </>
   )
 }
