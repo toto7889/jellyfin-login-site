@@ -1,15 +1,16 @@
 "use client"
 
 import Link from "next/link"
-import { BatteryWarning, Captions, ChevronLeft, Heart, Home, Languages, Maximize, Pause, Play, Search, Settings2, Tv, Volume2, VolumeX } from "lucide-react"
+import { BatteryWarning, Captions, ChevronLeft, Heart, Home, Languages, Maximize, Pause, Play, Search, Settings2, Tv, Volume2, VolumeX, WifiOff } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackStreams, reportProgress, type JellyfinMediaStream, type JellyfinSession } from "@/lib/jellyfin"
 import { useJellyfin } from "@/components/jellyfin-provider"
 
 type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; isLive?: boolean; previewMode?: boolean; previewDurationSeconds?: number; onClose: () => void }
 
 export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, isLive = false, previewMode = false, previewDurationSeconds, onClose }: Props) {
-  const { preferences, currentIp, blockIp } = useJellyfin()
+  const { preferences, currentIp, blockIp, serverHealth } = useJellyfin()
   const idleLimit = 120
   const [idleSeconds, setIdleSeconds] = useState(0)
   const [securityNotice, setSecurityNotice] = useState(false)
@@ -35,10 +36,54 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const [quality, setQuality] = useState("auto")
   const [batteryPercent, setBatteryPercent] = useState<number | null>(null)
   const [showBatteryWarning, setShowBatteryWarning] = useState(false)
+  const [portalReady, setPortalReady] = useState(false)
+  const [networkDecision, setNetworkDecision] = useState<"checking" | "warning" | "ready" | "continue">("checking")
+  const [networkProfile, setNetworkProfile] = useState(() => {
+    if (typeof navigator === "undefined") return { online: true, effectiveType: "", downlink: null as number | null, saveData: false }
+    const connection = (navigator as Navigator & { connection?: { effectiveType?: string; downlink?: number; saveData?: boolean } }).connection
+    return { online: navigator.onLine, effectiveType: connection?.effectiveType ?? "", downlink: connection?.downlink ?? null, saveData: connection?.saveData ?? false }
+  })
   const restartPosition = useRef<number | null>(null)
   const restartWasPlaying = useRef(false)
   const batteryDismissed = useRef(false)
   const log = (message: string) => setLogs((items) => [...items.slice(-7), `${new Date().toLocaleTimeString()} · ${message}`])
+
+  useEffect(() => setPortalReady(true), [])
+
+  useEffect(() => {
+    type NetworkInformation = EventTarget & { effectiveType?: string; downlink?: number; saveData?: boolean }
+    const connection = (navigator as Navigator & { connection?: NetworkInformation }).connection
+    const updateNetworkProfile = () => setNetworkProfile({
+      online: navigator.onLine,
+      effectiveType: connection?.effectiveType ?? "",
+      downlink: connection?.downlink ?? null,
+      saveData: connection?.saveData ?? false,
+    })
+    updateNetworkProfile()
+    connection?.addEventListener("change", updateNetworkProfile)
+    window.addEventListener("online", updateNetworkProfile)
+    window.addEventListener("offline", updateNetworkProfile)
+    return () => {
+      connection?.removeEventListener("change", updateNetworkProfile)
+      window.removeEventListener("online", updateNetworkProfile)
+      window.removeEventListener("offline", updateNetworkProfile)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (networkDecision !== "checking") return
+    if (previewMode) {
+      setNetworkDecision("ready")
+      return
+    }
+    if (!serverHealth) return
+    const slowConnection = !networkProfile.online
+      || ["slow-2g", "2g"].includes(networkProfile.effectiveType)
+      || (networkProfile.downlink != null && networkProfile.downlink < 2.5)
+      || networkProfile.saveData
+    const slowServer = !serverHealth.online || (serverHealth.latencyMs ?? 0) > 700
+    setNetworkDecision(slowConnection || slowServer ? "warning" : "ready")
+  }, [networkDecision, networkProfile, previewMode, serverHealth])
 
   function revealControls() { setControls(true); if (hideTimer.current) window.clearTimeout(hideTimer.current); hideTimer.current = window.setTimeout(() => { if (playing) setControls(false) }, 2800) }
   function togglePlay() { const video = videoRef.current; if (!video) return; if (video.paused) void video.play(); else video.pause(); revealControls() }
@@ -174,7 +219,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video) return
+    if (!video || !portalReady || networkDecision === "checking" || networkDecision === "warning") return
     setReady(false); setError(null); setRetrying(false); setLogs([])
     video.crossOrigin = "anonymous"
     const startSeconds = startPositionTicks ? startPositionTicks / 10_000_000 : 0
@@ -219,9 +264,11 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     })()
     const interval = window.setInterval(() => { if (!previewMode && !video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
     return () => { cancelled = true; if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeAttribute("src"); video.load() }
-  }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce, isLive, audioIndex, subtitleIndex, quality, previewMode, previewDurationSeconds, onClose])
+  }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce, isLive, audioIndex, subtitleIndex, quality, previewMode, previewDurationSeconds, onClose, portalReady, networkDecision])
 
-  return     <div ref={shellRef} onMouseMove={revealControls} onTouchStart={revealControls} className={`fixed inset-0 z-50 flex flex-col bg-black text-white ${tvMode ? "cursor-none" : ""} animate-in fade-in zoom-in-95 duration-500`} role="dialog" aria-label={`Lecteur : ${title}`}>
+  if (!portalReady) return null
+  return createPortal(
+    <div ref={shellRef} onMouseMove={revealControls} onTouchStart={revealControls} className={`fixed inset-0 z-50 flex flex-col bg-black text-white ${tvMode ? "cursor-none" : ""} animate-in fade-in zoom-in-95 duration-500`} role="dialog" aria-label={`Lecteur : ${title}`}>
     <div className={`absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/85 to-transparent px-5 pb-14 pt-5 transition-opacity duration-300 ${controls ? "opacity-100" : "pointer-events-none opacity-0"}`}><button type="button" onClick={onClose} className="flex items-center gap-2 text-sm font-medium text-white/85 hover:text-white"><ChevronLeft className="size-6" /> Retour au catalogue</button><div className="text-center"><h2 className="font-semibold">{title}</h2>{subtitle ? <p className="text-xs text-white/55">{subtitle}</p> : null}{language ? <p className="text-xs text-cyan-200/80">Langue : {language}</p> : null}</div><div className="flex items-center gap-3"><button type="button" onClick={() => { setTvMode((value) => !value); if (!tvMode) void shellRef.current?.requestFullscreen() }} aria-pressed={tvMode} className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">{tvMode ? "Mode TV activé" : "Mode TV"}</button><button type="button" onClick={() => setShowPages((value) => !value)} aria-expanded={showPages} aria-label="Ouvrir la navigation des pages" className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">Pages</button><button type="button" onClick={() => setShowLogs((value) => !value)} className="flex items-center gap-2 text-xs text-white/70 hover:text-white" aria-label="Afficher les logs"><Settings2 className="size-5" /> Logs</button></div></div>
     {showPages ? <nav aria-label="Navigation principale" className="absolute right-5 top-20 z-40 grid w-56 gap-1 rounded-2xl border border-white/15 bg-[#111]/95 p-2 shadow-2xl backdrop-blur-xl">{[{ href: "/", label: "Accueil", icon: <Home className="size-4" /> }, { href: "/tv", label: "Hub TV", icon: <Tv className="size-4" /> }, { href: "/guide-tv", label: "Guide TV", icon: <Tv className="size-4" /> }, { href: "/search", label: "Recherche", icon: <Search className="size-4" /> }, { href: "/favorites", label: "Favoris", icon: <Heart className="size-4" /> }, { href: "/settings", label: "Paramètres", icon: <Settings2 className="size-4" /> }, { href: "/genres", label: "Genres", icon: <Play className="size-4" /> }, { href: "/cast", label: "Distribution", icon: <Play className="size-4" /> }, { href: "/verification", label: "Vérification", icon: <Settings2 className="size-4" /> }, { href: "/securite", label: "Sécurité", icon: <Settings2 className="size-4" /> }, { href: "/releases", label: "Nouveautés", icon: <Play className="size-4" /> }, { href: "/ip", label: "Mon IP", icon: <Settings2 className="size-4" /> }, { href: "/admin/ip", label: "Administration", icon: <Settings2 className="size-4" /> }].map((page) => <Link key={page.href} href={page.href} onClick={onClose} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/75 transition hover:bg-white/10 hover:text-white">{page.icon}{page.label}</Link>)}</nav> : null}
     <div className="relative flex min-h-0 flex-1 items-center justify-center" onDoubleClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }}>
@@ -241,8 +288,11 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       </div> : null}
       <div className="mt-3 flex items-center gap-4"><button type="button" onClick={togglePlay} aria-label={playing ? "Pause" : "Lire"} className="hover:text-[#e50914]">{playing ? <Pause className="size-5 fill-current" /> : <Play className="size-5 fill-current" />}</button><button type="button" onClick={() => seek(progress - 10)} aria-label="Reculer de 10 secondes" className="rounded px-1 text-xs font-medium text-white/80 hover:text-white">−10 s</button><button type="button" onClick={() => seek(progress + 10)} aria-label="Avancer de 10 secondes" className="rounded px-1 text-xs font-medium text-white/80 hover:text-white">+10 s</button><button type="button" onClick={() => { const video = videoRef.current; if (video) { video.muted = !video.muted; setMuted(video.muted) } }} aria-label={muted ? "Activer le son" : "Couper le son"}>{muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}</button><span className="text-xs text-white/60">{formatTime(progress)} / {formatTime(duration)}</span><span className="ml-auto" /><button type="button" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }} aria-label="Plein écran"><Maximize className="size-5" /></button></div>
     </div>
-    {showBatteryWarning ? <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" role="presentation"><section role="alertdialog" aria-modal="true" aria-labelledby="battery-warning-title" aria-describedby="battery-warning-description" className="w-full max-w-md rounded-3xl border border-amber-200/20 bg-[#151515] p-6 shadow-2xl sm:p-8"><div className="mb-5 flex size-12 items-center justify-center rounded-2xl bg-amber-400/10 text-amber-300"><BatteryWarning className="size-6" /></div><p className="text-xs font-semibold uppercase tracking-[.2em] text-amber-300">Énergie faible · {batteryPercent}%</p><h2 id="battery-warning-title" className="mt-2 text-xl font-semibold">Votre batterie est presque vide</h2><p id="battery-warning-description" className="mt-2 text-sm leading-relaxed text-white/60">Passez en mode limité pour réduire la qualité vidéo et économiser votre batterie, ou continuez la lecture normalement.</p><div className="mt-6 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => { restartPosition.current = videoRef.current?.currentTime ?? progress; restartWasPlaying.current = !videoRef.current?.paused; setQuality("720p"); batteryDismissed.current = true; setShowBatteryWarning(false) }} className="rounded-xl bg-amber-300 px-4 py-3 text-sm font-semibold text-black transition hover:bg-amber-200">Passer en mode limité</button><button type="button" onClick={() => { batteryDismissed.current = true; setShowBatteryWarning(false) }} className="rounded-xl border border-white/15 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Continuer quand même</button></div></section></div> : null}
-  </div>
+    {networkDecision === "warning" ? <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" role="presentation"><section role="alertdialog" aria-modal="true" aria-labelledby="network-warning-title" aria-describedby="network-warning-description" className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#141414] p-6 shadow-2xl sm:p-8"><div className="mb-5 flex size-12 items-center justify-center rounded-2xl border border-amber-300/20 bg-amber-300/10 text-amber-200"><WifiOff className="size-6" /></div><p className="text-xs font-semibold uppercase tracking-[.2em] text-amber-200">Qualité réseau insuffisante</p><h2 id="network-warning-title" className="mt-2 text-xl font-semibold text-white sm:text-2xl">Votre connexion n&apos;est pas assez bonne</h2><p id="network-warning-description" className="mt-3 text-sm leading-relaxed text-white/65">Votre connexion ne semble pas suffisante pour regarder un film ou la TV en streaming avec une bonne qualité. Vous pouvez tout de même continuer, quitter ou réduire la qualité vidéo.</p><div className="mt-5 flex flex-wrap gap-2 text-xs text-white/55"><span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">Ping serveur : {serverHealth?.online ? `${serverHealth.latencyMs ?? "—"} ms` : "injoignable"}</span>{networkProfile.effectiveType ? <span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">Réseau : {networkProfile.effectiveType.toUpperCase()}</span> : null}{networkProfile.downlink != null ? <span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">Débit estimé : {networkProfile.downlink} Mb/s</span> : null}</div><div className="mt-7 grid gap-3"><button type="button" onClick={() => setNetworkDecision("continue")} className="rounded-xl bg-[#e50914] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#f6121d]">Continuer quand même</button><button type="button" onClick={onClose} className="rounded-xl border border-white/15 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Quitter</button><button type="button" onClick={() => { setQuality("480p"); setNetworkDecision("continue") }} className="rounded-xl border border-white/15 bg-white/[.04] px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Lire avec une qualité inférieure · 480p</button></div></section></div> : null}
+    {showBatteryWarning && networkDecision !== "warning" ? <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" role="presentation"><section role="alertdialog" aria-modal="true" aria-labelledby="battery-warning-title" aria-describedby="battery-warning-description" className="w-full max-w-md rounded-3xl border border-amber-200/20 bg-[#151515] p-6 shadow-2xl sm:p-8"><div className="mb-5 flex size-12 items-center justify-center rounded-2xl bg-amber-400/10 text-amber-300"><BatteryWarning className="size-6" /></div><p className="text-xs font-semibold uppercase tracking-[.2em] text-amber-300">Énergie faible · {batteryPercent}%</p><h2 id="battery-warning-title" className="mt-2 text-xl font-semibold">Votre batterie est presque vide</h2><p id="battery-warning-description" className="mt-2 text-sm leading-relaxed text-white/60">Passez en mode limité pour réduire la qualité vidéo et économiser votre batterie, ou continuez la lecture normalement.</p><div className="mt-6 grid gap-3 sm:grid-cols-2"><button type="button" onClick={() => { restartPosition.current = videoRef.current?.currentTime ?? progress; restartWasPlaying.current = !videoRef.current?.paused; setQuality("720p"); batteryDismissed.current = true; setShowBatteryWarning(false) }} className="rounded-xl bg-amber-300 px-4 py-3 text-sm font-semibold text-black transition hover:bg-amber-200">Passer en mode limité</button><button type="button" onClick={() => { batteryDismissed.current = true; setShowBatteryWarning(false) }} className="rounded-xl border border-white/15 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Continuer quand même</button></div></section></div> : null}
+  </div>,
+    document.body,
+  )
 }
 type BatteryStatus = EventTarget & { level: number; charging: boolean }
 
