@@ -342,7 +342,7 @@ export async function getItem(
   itemId: string,
 ): Promise<BaseItem> {
   const params = new URLSearchParams({
-    Fields: "People,Genres,Overview,Studios,Taglines",
+    Fields: "People,Genres,Overview,Studios,Taglines,UserData,ProductionYear,RunTimeTicks,OriginalTitle",
   })
   return apiFetch<BaseItem>(
     session,
@@ -356,7 +356,7 @@ export async function getSeasons(
 ): Promise<BaseItem[]> {
   const data = await apiFetch<ItemsResponse>(
     session,
-    `/Shows/${seriesId}/Seasons?userId=${session.userId}&Fields=ProductionYear`,
+    `/Shows/${seriesId}/Seasons?userId=${session.userId}&Fields=ProductionYear,UserData,IndexNumber,Overview`,
   )
   return data.Items ?? []
 }
@@ -368,7 +368,7 @@ export async function getEpisodes(
 ): Promise<BaseItem[]> {
   const data = await apiFetch<ItemsResponse>(
     session,
-    `/Shows/${seriesId}/Episodes?userId=${session.userId}&seasonId=${seasonId}&Fields=Overview,ProductionYear`,
+    `/Shows/${seriesId}/Episodes?userId=${session.userId}&seasonId=${seasonId}&Fields=Overview,ProductionYear,UserData,RunTimeTicks,IndexNumber,ParentIndexNumber,SeriesName`,
   )
   return data.Items ?? []
 }

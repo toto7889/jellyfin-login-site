@@ -367,20 +367,28 @@ function SeasonsSection({
 
   return (
     <div className="mt-10 flex flex-col gap-4">
-      <h2 className="text-lg font-semibold">Épisodes</h2>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="text-xl font-semibold tracking-tight">Saisons et épisodes</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Choisissez une saison pour parcourir les épisodes et reprendre votre lecture.</p>
+        </div>
+        {episodes?.length ? <span className="text-sm text-muted-foreground">{episodes.length} épisode{episodes.length > 1 ? "s" : ""}</span> : null}
+      </div>
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Saisons">
         {seasons.map((s) => (
           <button
             key={s.Id}
             type="button"
             onClick={() => setActiveSeason(s.Id)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+            role="tab"
+            aria-selected={activeSeason === s.Id}
+            className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
               activeSeason === s.Id
-                ? "bg-primary text-primary-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm"
                 : "bg-secondary text-secondary-foreground hover:bg-secondary/70"
             }`}
           >
-            {s.Name}
+            {s.Name}{s.UserData?.PlayedPercentage === 100 ? " · Terminée" : ""}
           </button>
         ))}
       </div>
@@ -431,11 +439,11 @@ function SeasonsSection({
                       {ep.IndexNumber != null ? `${ep.IndexNumber}. ` : ""}
                       {ep.Name}
                     </p>
-                    {ep.RunTimeTicks ? (
-                      <p className="text-xs text-muted-foreground">
-                        {ticksToTime(ep.RunTimeTicks)}
-                      </p>
-                    ) : null}
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      {ep.RunTimeTicks ? <span>{ticksToTime(ep.RunTimeTicks)}</span> : null}
+                      {ep.UserData?.PlaybackPositionTicks ? <span className="font-medium text-primary">Vous avez déjà commencé cet épisode · Reprendre</span> : ep.UserData?.Played ? <span>Épisode terminé</span> : null}
+                    </div>
+                    {(ep.UserData?.PlayedPercentage ?? 0) > 0 && (ep.UserData?.PlayedPercentage ?? 0) < 100 ? <div className="mt-2 h-1 w-full max-w-56 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary" style={{ width: `${ep.UserData?.PlayedPercentage}%` }} /></div> : null}
                     {ep.Overview ? (
                       <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                         {ep.Overview}
