@@ -514,16 +514,40 @@ export function streamUrl(session: JellyfinSession, itemId: string): string {
   return `${session.serverUrl}/Videos/${itemId}/master.m3u8?${params.toString()}`
 }
 
-// Direct (static) stream — used as a fallback for natively supported files.
-export function directStreamUrl(
-  session: JellyfinSession,
-  itemId: string,
-): string {
-  const params = new URLSearchParams({
-    api_key: session.accessToken,
-    DeviceId: session.deviceId,
-    static: "true",
-  })
+export type JellyfinMediaStream = {
+  Index: number
+  Type: "Video" | "Audio" | "Subtitle"
+  Language?: string
+  DisplayTitle?: string
+  Codec?: string
+  IsDefault?: boolean
+  IsExternal?: boolean
+}
+
+export async function getPlaybackStreams(session: JellyfinSession, itemId: string): Promise<JellyfinMediaStream[]> {
+  const info = await apiFetch<{ MediaSources?: Array<{ MediaStreams?: JellyfinMediaStream[] }> }>(
+    session,
+    `/Items/${encodeURIComponent(itemId)}/PlaybackInfo?userId=${encodeURIComponent(session.userId)}`,
+    { method: "POST", body: JSON.stringify({ UserId: session.userId, DeviceProfile: { MaxStreamingBitrate: 20000000 } }) },
+  )
+  return info.MediaSources?.[0]?.MediaStreams ?? []
+}
+
+export type PlaybackStreamOptions = {
+  audioStreamIndex?: number
+  subtitleStreamIndex?: number | null
+  maxStreamingBitrate?: number
+  maxWidth?: number
+  maxHeight?: number
+}
+
+export function directStreamUrl(session: JellyfinSession, itemId: string, options: PlaybackStreamOptions = {}): string {
+  const params = new URLSearchParams({ api_key: session.accessToken, DeviceId: session.deviceId })
+  if (options.audioStreamIndex != null) params.set("AudioStreamIndex", String(options.audioStreamIndex))
+  if (options.subtitleStreamIndex != null) params.set("SubtitleStreamIndex", String(options.subtitleStreamIndex))
+  if (options.maxStreamingBitrate) params.set("MaxStreamingBitrate", String(options.maxStreamingBitrate))
+  if (options.maxWidth) params.set("MaxWidth", String(options.maxWidth))
+  if (options.maxHeight) params.set("MaxHeight", String(options.maxHeight))
   return `${session.serverUrl}/Videos/${itemId}/stream?${params.toString()}`
 }
 
