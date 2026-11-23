@@ -65,12 +65,9 @@ function DetailContent({
     () => getLocalTrailers(session, itemId),
     { shouldRetryOnError: false },
   )
-  const previewSeasonId = data?.seasons[0]?.Id
   const { data: previewEpisodes, isLoading: previewEpisodesLoading } = useSWR(
-    data?.item.Type === "Series" && previewSeasonId
-      ? ["preview-episodes", session.userId, itemId, previewSeasonId]
-      : null,
-    () => getEpisodes(session, itemId, previewSeasonId!),
+    data?.item.Type === "Series" ? ["preview-episodes", session.userId, itemId] : null,
+    () => getEpisodes(session, itemId),
     { shouldRetryOnError: false },
   )
 
@@ -94,8 +91,11 @@ function DetailContent({
   const backdrop = backdropImage(session.serverUrl, item, 1600)
   const poster = primaryImage(session.serverUrl, item, 400)
   const isSeries = item.Type === "Series"
-  const previewItem = localTrailers?.[0] ?? previewEpisodes?.[0] ?? (isSeries ? undefined : item)
-  const isLocalTrailer = Boolean(localTrailers?.[0])
+  const resumedEpisode = previewEpisodes?.find((episode) => (episode.UserData?.PlaybackPositionTicks ?? 0) > 0)
+  const previewItem = isSeries
+    ? resumedEpisode ?? localTrailers?.[0] ?? previewEpisodes?.[0]
+    : localTrailers?.[0] ?? item
+  const isLocalTrailer = Boolean(localTrailers?.[0] && !resumedEpisode)
   const resumeTicks = item.UserData?.PlaybackPositionTicks ?? 0
 
   function openPreview() {
@@ -105,7 +105,7 @@ function DetailContent({
       title: item.Name,
       subtitle: isLocalTrailer ? "Bande-annonce" : `Aperçu · ${previewItem.Name}`,
       backdrop: backdropImage(session.serverUrl, previewItem, 1600) ?? backdrop,
-      positionTicks: 0,
+      positionTicks: resumedEpisode?.Id === previewItem.Id ? resumedEpisode.UserData?.PlaybackPositionTicks : 0,
       language: item.OriginalLanguage ?? item.Language,
       previewMode: true,
       previewDurationSeconds: isLocalTrailer ? undefined : 30,
@@ -226,7 +226,7 @@ function DetailContent({
                 </Button>
               </div>
             ) : null}
-            {isSeries && previewItem ? <Button size="lg" variant="outline" onClick={openPreview}><Play className="size-4" />{isLocalTrailer ? "Bande-annonce" : "Aperçu du premier épisode"}</Button> : null}
+            {isSeries && previewItem && !previewEpisodesLoading ? <Button size="lg" variant="outline" onClick={openPreview}><Play className="size-4" />{isLocalTrailer ? "Bande-annonce" : resumedEpisode ? "Reprendre l’épisode" : "Aperçu d’un épisode"}</Button> : null}
           </div>
         </div>
 

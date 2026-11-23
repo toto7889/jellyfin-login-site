@@ -29,7 +29,7 @@ function TvContent({ session }: { session: JellyfinSession }) {
       const programs = await getLiveTvPrograms(session, channels.map((channel) => channel.Id))
       return { channels, programs }
     },
-    { refreshInterval: 60_000, revalidateOnFocus: true },
+    { refreshInterval: 60_000, revalidateOnFocus: true, dedupingInterval: 120_000, keepPreviousData: true },
   )
 
   const { data: livePreviewUrl } = useSWR(

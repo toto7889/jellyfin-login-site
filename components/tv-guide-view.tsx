@@ -46,7 +46,7 @@ function TvGuideContent({ session }: { session: JellyfinSession }) {
       const programs = await getLiveTvPrograms(session, channels.map((channel) => channel.Id), HOURS)
       return { channels, programs }
     },
-    { refreshInterval: 60_000, revalidateOnFocus: true },
+    { refreshInterval: 60_000, revalidateOnFocus: true, dedupingInterval: 120_000, keepPreviousData: true },
   )
 
   const filteredChannels = useMemo(() => {

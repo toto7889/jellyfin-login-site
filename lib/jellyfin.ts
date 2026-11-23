@@ -364,11 +364,16 @@ export async function getSeasons(
 export async function getEpisodes(
   session: JellyfinSession,
   seriesId: string,
-  seasonId: string,
+  seasonId?: string,
 ): Promise<BaseItem[]> {
+  const params = new URLSearchParams({
+    userId: session.userId,
+    Fields: "Overview,ProductionYear,UserData,RunTimeTicks,IndexNumber,ParentIndexNumber,SeriesName",
+  })
+  if (seasonId) params.set("seasonId", seasonId)
   const data = await apiFetch<ItemsResponse>(
     session,
-    `/Shows/${seriesId}/Episodes?userId=${session.userId}&seasonId=${seasonId}&Fields=Overview,ProductionYear,UserData,RunTimeTicks,IndexNumber,ParentIndexNumber,SeriesName`,
+    `/Shows/${seriesId}/Episodes?${params.toString()}`,
   )
   return data.Items ?? []
 }
@@ -435,10 +440,7 @@ export async function getLiveTvChannels(
   session: JellyfinSession,
 ): Promise<BaseItem[]> {
   const pageSize = 200
-  const channels: BaseItem[] = []
-  let startIndex = 0
-
-  while (true) {
+  const fetchPage = async (startIndex: number) => {
     const params = new URLSearchParams({
       userId: session.userId,
       EnableImages: "true",
@@ -447,17 +449,19 @@ export async function getLiveTvChannels(
       StartIndex: String(startIndex),
       Limit: String(pageSize),
     })
-    const data = await apiFetch<ItemsResponse>(
-      session,
-      `/LiveTv/Channels?${params.toString()}`,
-    )
-    const page = data.Items ?? []
-    channels.push(...page)
-    startIndex += page.length
-    if (!page.length || page.length < pageSize || (data.TotalRecordCount && startIndex >= data.TotalRecordCount)) break
+    return apiFetch<ItemsResponse>(session, `/LiveTv/Channels?${params.toString()}`)
   }
 
-  return channels
+  const firstPage = await fetchPage(0)
+  const firstChannels = firstPage.Items ?? []
+  const total = firstPage.TotalRecordCount || firstChannels.length
+  const remainingPages = Math.ceil(Math.max(0, total - firstChannels.length) / pageSize)
+  if (!remainingPages) return firstChannels
+
+  const pages = await Promise.all(
+    Array.from({ length: remainingPages }, (_, index) => fetchPage((index + 1) * pageSize)),
+  )
+  return [...firstChannels, ...pages.flatMap((page) => page.Items ?? [])]
 }
 
 export async function getLiveTvStreamUrl(

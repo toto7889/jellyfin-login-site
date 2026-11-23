@@ -7,6 +7,7 @@ import { VideoPlayer } from "@/components/video-player"
 import {
   backdropImage,
   directStreamUrl,
+  getEpisodes,
   getItem,
   type BaseItem,
   primaryImage,
@@ -26,8 +27,9 @@ export function MediaCard({ item, session, variant = "poster" }: MediaCardProps)
   const progress = currentItem.UserData?.PlayedPercentage ?? 0
   const resumeTicks = currentItem.UserData?.PlaybackPositionTicks ?? 0
   const hasStarted = resumeTicks > 0 || progress > 0
-  const canPreview = item.Type === "Movie" || item.Type === "Episode"
+  const canPreview = item.Type === "Movie" || item.Type === "Episode" || item.Type === "Series"
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewStartSeconds, setPreviewStartSeconds] = useState(0)
   const [playerOpen, setPlayerOpen] = useState(false)
   const hoverTimer = useRef<number | null>(null)
   const requestId = useRef(0)
@@ -52,17 +54,34 @@ export function MediaCard({ item, session, variant = "poster" }: MediaCardProps)
     const currentRequest = ++requestId.current
     hoverTimer.current = window.setTimeout(async () => {
       try {
-        const latest = await getItem(session, item.Id)
+        const resolvedTarget = item.Type === "Series"
+          ? await getEpisodes(session, item.Id).then((episodes) => episodes.find((episode) => (episode.UserData?.PlaybackPositionTicks ?? 0) > 0) ?? episodes[0])
+          : await getItem(session, item.Id)
         if (currentRequest !== requestId.current) return
-        setCurrentItem(latest)
-        const latestTicks = latest.UserData?.PlaybackPositionTicks ?? 0
-        const url = new URL(directStreamUrl(session, item.Id, { startTimeTicks: latestTicks }))
+        if (!resolvedTarget || resolvedTarget.Type === "Series") return
+        setCurrentItem(resolvedTarget)
+        const latestTicks = resolvedTarget.UserData?.PlaybackPositionTicks ?? 0
+        setPreviewStartSeconds(latestTicks / 10_000_000)
+        const url = new URL(directStreamUrl(session, resolvedTarget.Id, { startTimeTicks: latestTicks }))
         url.searchParams.set("static", "true")
         setPreviewUrl(url.toString())
       } catch {
         if (currentRequest === requestId.current) setCurrentItem(item)
       }
     }, 350)
+  }
+
+  async function openPlayback() {
+    try {
+      const target = item.Type === "Series"
+        ? await getEpisodes(session, item.Id).then((episodes) => episodes.find((episode) => (episode.UserData?.PlaybackPositionTicks ?? 0) > 0) ?? episodes[0])
+        : await getItem(session, item.Id)
+      if (!target) return
+      setCurrentItem(target)
+      setPlayerOpen(true)
+    } catch {
+      if (item.Type !== "Series") setPlayerOpen(true)
+    }
   }
 
   function stopPreview() {
@@ -79,11 +98,11 @@ export function MediaCard({ item, session, variant = "poster" }: MediaCardProps)
           // eslint-disable-next-line @next/next/no-img-element
           <img src={img} alt={item.Name} crossOrigin="anonymous" loading="lazy" className={`h-full w-full object-cover transition-transform duration-300 group-hover:scale-105 ${previewUrl ? "opacity-0" : "opacity-100"}`} />
         ) : <div className="flex h-full w-full items-center justify-center p-3 text-center text-sm text-muted-foreground">{item.Name}</div>}
-        {previewUrl ? <video ref={previewVideo} src={previewUrl} muted autoPlay playsInline preload="metadata" aria-label={`Aperçu vidéo de ${item.Name}`} onTimeUpdate={(event) => { if (event.currentTarget.currentTime >= 12) event.currentTarget.pause() }} className="absolute inset-0 size-full object-cover" /> : null}
+        {previewUrl ? <video ref={previewVideo} src={previewUrl} muted playsInline preload="metadata" aria-label={`Aperçu vidéo de ${item.Name}`} onLoadedMetadata={(event) => { const video = event.currentTarget; if (previewStartSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = Math.min(previewStartSeconds, Math.max(0, video.duration - 1)); void video.play().catch(() => undefined) }} onTimeUpdate={(event) => { if (event.currentTarget.currentTime >= previewStartSeconds + 12) event.currentTarget.pause() }} className="absolute inset-0 size-full object-cover" /> : null}
         {previewUrl ? <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/20" /> : null}
         <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3 text-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          <p className="text-xs font-medium text-white drop-shadow">{canPreview ? hasStarted ? `Vous avez déjà commencé ${item.Type === "Episode" ? "cet épisode" : "ce film"}` : `Aperçu ${item.Type === "Episode" ? "de l’épisode" : "du film"}` : "Découvrez les saisons et les épisodes"}</p>
-          {canPreview ? <button type="button" onClick={() => setPlayerOpen(true)} className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black shadow-lg transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
+          <p className="text-xs font-medium text-white drop-shadow">{canPreview ? hasStarted ? `Vous avez déjà commencé ${item.Type === "Series" ? "cette série" : item.Type === "Episode" ? "cet épisode" : "ce film"}` : `Aperçu ${item.Type === "Series" ? "de la série" : item.Type === "Episode" ? "de l’épisode" : "du film"}` : "Découvrez les saisons et les épisodes"}</p>
+          {canPreview ? <button type="button" onClick={() => void openPlayback()} className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black shadow-lg transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
             <Play className="size-3.5 fill-current" />{hasStarted ? "Continuer" : "Commencer"}
           </button> : <Link href={`/item/${item.Id}`} className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black">Voir la série</Link>}
           {previewUrl ? <span className="flex items-center gap-1 text-[10px] text-white/70"><VolumeX className="size-3" />Aperçu sans son</span> : null}
@@ -94,7 +113,7 @@ export function MediaCard({ item, session, variant = "poster" }: MediaCardProps)
         <Link href={`/item/${item.Id}`} className="block truncate text-sm font-medium text-foreground hover:text-primary">{item.Name}</Link>
         {subtitle ? <p className="truncate text-xs text-muted-foreground">{subtitle}</p> : null}
       </div>
-      {playerOpen ? <VideoPlayer session={session} itemId={item.Id} title={item.Name} backdropUrl={backdropImage(session.serverUrl, item, 1600)} startPositionTicks={resumeTicks} language={item.OriginalLanguage ?? item.Language} onClose={() => setPlayerOpen(false)} /> : null}
+      {playerOpen ? <VideoPlayer session={session} itemId={currentItem.Id} title={item.Name} subtitle={currentItem.Type === "Episode" ? currentItem.Name : undefined} backdropUrl={backdropImage(session.serverUrl, item, 1600)} startPositionTicks={currentItem.UserData?.PlaybackPositionTicks ?? 0} language={item.OriginalLanguage ?? item.Language} onClose={() => setPlayerOpen(false)} /> : null}
     </div>
   )
 }
