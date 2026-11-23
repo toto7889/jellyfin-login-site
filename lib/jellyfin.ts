@@ -66,6 +66,25 @@ export type Person = {
   PrimaryImageTag?: string
 }
 
+export type JellyfinPlaybackSession = {
+  Id: string
+  DeviceId: string
+  DeviceName: string
+  Client: string
+  UserId?: string
+  UserName?: string
+  NowPlayingItem?: BaseItem
+  PlayState?: {
+    IsPaused?: boolean
+    IsMuted?: boolean
+    VolumeLevel?: number
+    PositionTicks?: number
+    CanSeek?: boolean
+  }
+  SupportsRemoteControl?: boolean
+  SupportsMediaControl?: boolean
+}
+
 type ItemsResponse = {
   Items: BaseItem[]
   TotalRecordCount: number
@@ -156,6 +175,51 @@ export async function checkServerHealth(
   }
 }
 
+export type QuickConnectRequest = { Secret: string; Code: string; Authenticated: boolean }
+
+type AuthenticationResponse = { AccessToken: string; User: { Id: string; Name: string } }
+
+export async function isQuickConnectEnabled(): Promise<boolean> {
+  const response = await fetch(`${SERVER_URL}/QuickConnect/Enabled`, { cache: "no-store" })
+  if (!response.ok) throw new Error(`Quick Connect indisponible (${response.status}).`)
+  return response.json() as Promise<boolean>
+}
+
+export async function initiateQuickConnect(): Promise<QuickConnectRequest> {
+  const response = await fetch(`${SERVER_URL}/QuickConnect/Initiate`, {
+    method: "POST",
+    headers: { Authorization: buildAuthHeader(getDeviceId()) },
+    cache: "no-store",
+  })
+  if (!response.ok) throw new Error(`Impossible de créer le code d’activation (${response.status}).`)
+  return response.json() as Promise<QuickConnectRequest>
+}
+
+export async function checkQuickConnect(secret: string): Promise<boolean> {
+  const response = await fetch(`${SERVER_URL}/QuickConnect/Connect?secret=${encodeURIComponent(secret)}`, { cache: "no-store" })
+  if (!response.ok) throw new Error(`Vérification du code impossible (${response.status}).`)
+  const request = await response.json() as QuickConnectRequest
+  return request.Authenticated
+}
+
+export async function authenticateWithQuickConnect(secret: string): Promise<JellyfinSession> {
+  const deviceId = getDeviceId()
+  const response = await fetch(`${SERVER_URL}/Users/AuthenticateWithQuickConnect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: buildAuthHeader(deviceId) },
+    body: JSON.stringify({ Secret: secret }),
+    cache: "no-store",
+  })
+  if (!response.ok) throw new Error(`Activation refusée (${response.status}).`)
+  const data = await response.json() as AuthenticationResponse
+  return { serverUrl: SERVER_URL, accessToken: data.AccessToken, userId: data.User.Id, userName: data.User.Name, deviceId }
+}
+
+export async function authorizeQuickConnect(session: JellyfinSession, code: string): Promise<void> {
+  const authorized = await apiFetch<boolean>(session, `/QuickConnect/Authorize?code=${encodeURIComponent(code)}`, { method: "POST" })
+  if (!authorized) throw new Error("Code invalide ou expiré.")
+}
+
 export async function authenticate(
   username: string,
   password: string,
@@ -237,7 +301,7 @@ export async function getItems(
 ): Promise<BaseItem[]> {
   const params = new URLSearchParams({
     Recursive: String(options.recursive ?? true),
-    Fields: "ProductionYear,Overview,Genres",
+    Fields: "ProductionYear,Overview,Genres,CommunityRating,OfficialRating",
     SortBy: options.sortBy ?? "SortName",
     SortOrder: options.sortOrder ?? "Ascending",
     Limit: String(options.limit ?? 60),
@@ -376,6 +440,31 @@ export async function getLiveTvChannels(
   return data.Items ?? []
 }
 
+export async function getLiveTvStreamUrl(
+  session: JellyfinSession,
+  channelId: string,
+): Promise<string> {
+  const playback = await apiFetch<{ MediaSources?: Array<{ LiveStreamId?: string; Container?: string }> }>(
+    session,
+    `/Items/${encodeURIComponent(channelId)}/PlaybackInfo?userId=${encodeURIComponent(session.userId)}&autoOpenLiveStream=true`,
+    { method: "POST", body: JSON.stringify({ UserId: session.userId, AutoOpenLiveStream: true }) },
+  )
+  const source = playback.MediaSources?.find((media) => media.LiveStreamId)
+  if (!source?.LiveStreamId) throw new Error("Le serveur Jellyfin n’a pas ouvert de flux pour cette chaîne.")
+  const params = new URLSearchParams({ api_key: session.accessToken, DeviceId: session.deviceId })
+  return `${session.serverUrl}/LiveTv/LiveStreamFiles/${encodeURIComponent(source.LiveStreamId)}/stream.${encodeURIComponent(source.Container || "ts")}?${params.toString()}`
+}
+
+export async function closeLiveTvStream(
+  session: JellyfinSession,
+  streamUrl: string,
+): Promise<void> {
+  const liveStreamId = new URL(streamUrl).pathname.match(/LiveStreamFiles\/([^/]+)\/stream\./)?.[1]
+  if (!liveStreamId) return
+  const params = new URLSearchParams({ liveStreamId: decodeURIComponent(liveStreamId) })
+  await apiFetch<void>(session, `/LiveStreams/Close?${params.toString()}`, { method: "POST" })
+}
+
 export async function getLiveTvPrograms(
   session: JellyfinSession,
   channelIds: string[],
@@ -436,6 +525,56 @@ export function directStreamUrl(
     static: "true",
   })
   return `${session.serverUrl}/Videos/${itemId}/stream?${params.toString()}`
+}
+
+export async function getPlaybackSessions(
+  session: JellyfinSession,
+): Promise<JellyfinPlaybackSession[]> {
+  return apiFetch<JellyfinPlaybackSession[]>(
+    session,
+    `/Sessions?ControllableByUserId=${encodeURIComponent(session.userId)}`,
+  )
+}
+
+export async function startPlaybackOnSession(
+  session: JellyfinSession,
+  sessionId: string,
+  itemId: string,
+  command: "PlayNow" | "PlayNext" = "PlayNow",
+): Promise<void> {
+  const params = new URLSearchParams({ playCommand: command, itemIds: itemId })
+  await apiFetch<void>(
+    session,
+    `/Sessions/${encodeURIComponent(sessionId)}/Playing?${params.toString()}`,
+    { method: "POST" },
+  )
+}
+
+export async function sendPlaybackCommand(
+  session: JellyfinSession,
+  sessionId: string,
+  command: "PlayPause" | "Play" | "Pause" | "Stop" | "Unpause",
+): Promise<void> {
+  await apiFetch<void>(
+    session,
+    `/Sessions/${encodeURIComponent(sessionId)}/Playing/${command}`,
+    { method: "POST" },
+  )
+}
+
+export async function seekPlaybackSession(
+  session: JellyfinSession,
+  sessionId: string,
+  positionTicks: number,
+): Promise<void> {
+  await apiFetch<void>(
+    session,
+    `/Sessions/${encodeURIComponent(sessionId)}/Playing/Seek`,
+    {
+      method: "POST",
+      body: JSON.stringify({ SeekPositionTicks: Math.max(0, Math.round(positionTicks)) }),
+    },
+  )
 }
 
 export async function reportProgress(

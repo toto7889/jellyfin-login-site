@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
-import { Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch } from "lucide-react"
+import { Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch, Cast, Clapperboard } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -38,11 +38,13 @@ function AppHeaderContent() {
             <span className="text-[26px] font-black tracking-[-.08em] text-[#e50914] transition-transform group-hover:scale-110">JFLX</span>
             <span className="hidden text-[10px] font-semibold tracking-[.28em] text-white/45 sm:block">JELLYFIN</span>
           </Link>
-          <nav className="hidden items-center gap-1 md:flex" aria-label="Navigation principale">
+          <nav className="hidden items-center gap-1 xl:flex" aria-label="Navigation principale">
             <Link href="/" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Home className="mr-1.5 inline size-4" />Accueil</Link>
             <Link href="/tv" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/tv") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Tv className="mr-1.5 inline size-4" />TV en direct</Link>
+            <Link href="/genres" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/genres") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Clapperboard className="mr-1.5 inline size-4" />Genres</Link>
+            <Link href="/cast" aria-current={pathname.startsWith("/cast") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/cast") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Cast className="mr-1.5 inline size-4" />Caster</Link>
             <Link href="/favorites" className="rounded-md px-3 py-2 text-sm text-white/60 transition hover:text-white"><Heart className="mr-1.5 inline size-4" />Favoris</Link>
-            <Link href="/verification" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/verification" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Fingerprint className="mr-1.5 inline size-4" />Vérification</Link><Link href="/ip" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/ip" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Ban className="mr-1.5 inline size-4" />Mon IP</Link><Link href="/admin/ip" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/admin") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><ShieldCheck className="mr-1.5 inline size-4" />Admin</Link><Link href="/releases" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/releases") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><GitBranch className="mr-1.5 inline size-4" />Releases AI</Link>
+            <Link href="/verification" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/verification" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Fingerprint className="mr-1.5 inline size-4" />Vérification</Link><Link href="/ip" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/ip" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Ban className="mr-1.5 inline size-4" />Mon IP</Link><Link href="/admin/ip" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/admin") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><ShieldCheck className="mr-1.5 inline size-4" />Admin</Link><Link href="/securite" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/securite" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><ShieldCheck className="mr-1.5 inline size-4" />Sécurité</Link><Link href="/releases" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/releases") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><GitBranch className="mr-1.5 inline size-4" />Releases AI</Link>
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <form onSubmit={onSearch} className={`${searchOpen ? "w-[min(45vw,330px)]" : "w-0 md:w-[min(24vw,230px)]"} relative overflow-hidden transition-all duration-300`}>
@@ -58,6 +60,7 @@ function AppHeaderContent() {
                 <p className="px-3 py-2 text-sm font-semibold text-white">{session?.userName}</p>
                 <div className="my-1 border-t border-white/10" />
                 <Link href="/favorites" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Heart className="size-4" /> Mes favoris</Link>
+                <Link href="/settings" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Settings className="size-4" /> Paramètres du lecteur</Link>
                 <div className="px-3 py-3"><p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/45"><Settings className="size-3" /> Interface</p><button type="button" onClick={() => updatePreferences({ compact: !preferences.compact })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10">Mode compact {preferences.compact ? <Check className="size-4 text-[#e50914]" /> : null}</button><button type="button" onClick={() => updatePreferences({ accent: preferences.accent === "red" ? "blue" : "red" })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10">Accent {preferences.accent === "red" ? "Rouge" : "Bleu"}<span className={`size-3 rounded-full ${preferences.accent === "red" ? "bg-[#e50914]" : "bg-[#00a4dc]"}`} /></button></div>
                 <button type="button" onClick={() => { setMenuOpen(false); setConfirmLogout(true) }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-300 hover:bg-red-500/10"><LogOut className="size-4" /> Se déconnecter</button>
               </div> : null}
@@ -65,9 +68,26 @@ function AppHeaderContent() {
           </div>
         </div>
       </header>
+      <nav aria-label="Navigation mobile" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#090909]/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl xl:hidden">
+        <div className="mx-auto grid max-w-2xl grid-cols-7">
+          <MobileNavLink href="/" active={pathname === "/"} label="Accueil" icon={<Home />} />
+          <MobileNavLink href="/tv" active={pathname.startsWith("/tv")} label="Direct" icon={<Tv />} />
+          <MobileNavLink href="/cast" active={pathname.startsWith("/cast")} label="Caster" icon={<Cast />} />
+          <MobileNavLink href="/favorites" active={pathname.startsWith("/favorites")} label="Favoris" icon={<Heart />} />
+          <MobileNavLink href="/search" active={pathname.startsWith("/search")} label="Recherche" icon={<Search />} />
+          <MobileNavLink href="/securite" active={pathname.startsWith("/securite")} label="Sécurité" icon={<ShieldCheck />} />
+          <MobileNavLink href="/settings" active={pathname.startsWith("/settings")} label="Réglages" icon={<Settings />} />
+        </div>
+      </nav>
       {confirmLogout ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md animate-in fade-in duration-300"><div role="dialog" aria-modal="true" className={`w-full max-w-sm rounded-2xl border border-white/10 bg-[#191919] p-6 shadow-[0_0_80px_rgba(229,9,20,.18)] animate-in zoom-in-95 duration-300 ${loggingOut ? "scale-95 opacity-0 transition-all duration-700" : ""}`}><div className="flex items-start justify-between"><div><div className="mb-4 h-1 w-12 rounded-full bg-[#e50914] shadow-[0_0_18px_#e50914]" /><h2 className="text-lg font-semibold text-white">Se déconnecter ?</h2><p className="mt-2 text-sm text-white/55">Votre session sera supprimée de cet appareil.</p></div><button type="button" onClick={() => setConfirmLogout(false)} className="text-white/50 transition hover:rotate-90 hover:text-white" aria-label="Fermer" disabled={loggingOut}><X className="size-5" /></button></div><div className="mt-6 flex justify-end gap-2"><Button variant="ghost" onClick={() => setConfirmLogout(false)} disabled={loggingOut}>Annuler</Button><Button onClick={doLogout} disabled={loggingOut} className="min-w-32 bg-[#e50914] text-white shadow-[0_0_20px_rgba(229,9,20,.25)] transition hover:scale-[1.02] hover:bg-[#f6121d]">{loggingOut ? "À bientôt…" : "Déconnexion"}</Button></div></div></div> : null}
     </>
   )
+}
+
+function MobileNavLink({ href, active, label, icon }: { href: string; active: boolean; label: string; icon: React.ReactNode }) {
+  return <Link href={href} aria-current={active ? "page" : undefined} className={`flex min-h-14 flex-col items-center justify-center gap-1 px-1 text-[10px] font-medium transition-colors ${active ? "text-primary" : "text-white/55 hover:text-white"}`}>
+    <span aria-hidden="true" className="[&>svg]:size-5">{icon}</span>{label}
+  </Link>
 }
 
 export function AppHeader() {

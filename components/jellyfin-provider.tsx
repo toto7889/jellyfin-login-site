@@ -1,12 +1,11 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
-import { authenticate, checkServerHealth, type JellyfinSession, type ServerHealth } from "@/lib/jellyfin"
+import { authenticate, authenticateWithQuickConnect, checkServerHealth, type JellyfinSession, type ServerHealth } from "@/lib/jellyfin"
 
 const STORAGE_KEY = "jf_session"
 const PREFS_KEY = "jf_preferences"
 const BLOCKED_IPS_KEY = "jf_blocked_ips"
-const ACTIVATION_KEY = "jf_activation_state"
 
 const FALLBACK_IP = "IP non disponible"
 
@@ -17,16 +16,15 @@ type JellyfinContextValue = {
   serverHealth: ServerHealth | null
   preferences: Preferences
   login: (username: string, password: string) => Promise<void>
+  loginWithQuickConnect: (secret: string) => Promise<void>
   logout: () => void
   toggleFavorite: (itemId: string) => void
   updatePreferences: (changes: Partial<Preferences>) => void
   currentIp: string
   publicIpVerified: boolean
   blockedIps: string[]
-  activation: { activated: number; limit: number; codes: string[] }
   blockIp: (ip: string) => void
   unblockIp: (ip: string) => void
-  generateActivationCode: () => string
 }
 
 const defaults: Preferences = { compact: false, accent: "red", favorites: [], autoplay: true, reduceMotion: false }
@@ -37,7 +35,6 @@ export function JellyfinProvider({ children }: { children: React.ReactNode }) {
   const [serverHealth, setServerHealth] = useState<ServerHealth | null>(null)
   const [preferences, setPreferences] = useState<Preferences>(defaults)
   const [blockedIps, setBlockedIps] = useState<string[]>([])
-  const [activation, setActivation] = useState({ activated: 1, limit: 5, codes: [] as string[] })
   const [currentIp, setCurrentIp] = useState(FALLBACK_IP)
   const [publicIpVerified, setPublicIpVerified] = useState(false)
   const [ready, setReady] = useState(false)
@@ -47,11 +44,9 @@ export function JellyfinProvider({ children }: { children: React.ReactNode }) {
       const rawSession = window.localStorage.getItem(STORAGE_KEY)
       const rawPrefs = window.localStorage.getItem(PREFS_KEY)
       const rawBlockedIps = window.localStorage.getItem(BLOCKED_IPS_KEY)
-      const rawActivation = window.localStorage.getItem(ACTIVATION_KEY)
       if (rawSession) setSession(JSON.parse(rawSession) as JellyfinSession)
       if (rawPrefs) setPreferences({ ...defaults, ...JSON.parse(rawPrefs) })
       if (rawBlockedIps) setBlockedIps(JSON.parse(rawBlockedIps) as string[])
-      if (rawActivation) setActivation({ activated: 1, limit: 5, codes: [], ...JSON.parse(rawActivation) })
     } catch {}
     fetch("/api/security/ip", { cache: "no-store" }).then((response) => response.json()).then((data: { ip?: string | null }) => { if (data.ip) { setCurrentIp(data.ip); setPublicIpVerified(true) } }).catch(() => undefined)
     setReady(true)
@@ -90,6 +85,12 @@ export function JellyfinProvider({ children }: { children: React.ReactNode }) {
     setSession(next)
   }, [])
 
+  const loginWithQuickConnect = useCallback(async (secret: string) => {
+    const next = await authenticateWithQuickConnect(secret)
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+    setSession(next)
+  }, [])
+
   const logout = useCallback(() => {
     window.localStorage.removeItem(STORAGE_KEY)
     setSession(null)
@@ -119,16 +120,6 @@ export function JellyfinProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const generateActivationCode = useCallback(() => {
-    const code = `JF-${crypto.randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`
-    setActivation((current) => {
-      const next = { ...current, codes: [code, ...current.codes].slice(0, 8) }
-      window.localStorage.setItem(ACTIVATION_KEY, JSON.stringify(next))
-      return next
-    })
-    return code
-  }, [])
-
   const toggleFavorite = useCallback((itemId: string) => {
     setPreferences((current) => {
       const favorites = current.favorites.includes(itemId)
@@ -140,7 +131,7 @@ export function JellyfinProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const value = useMemo(() => ({ session, ready, serverHealth, preferences, login, logout, toggleFavorite, updatePreferences, currentIp, publicIpVerified, blockedIps, activation, blockIp, unblockIp, generateActivationCode }), [session, ready, serverHealth, preferences, login, logout, toggleFavorite, updatePreferences, currentIp, publicIpVerified, blockedIps, activation, blockIp, unblockIp, generateActivationCode])
+  const value = useMemo(() => ({ session, ready, serverHealth, preferences, login, loginWithQuickConnect, logout, toggleFavorite, updatePreferences, currentIp, publicIpVerified, blockedIps, blockIp, unblockIp }), [session, ready, serverHealth, preferences, login, loginWithQuickConnect, logout, toggleFavorite, updatePreferences, currentIp, publicIpVerified, blockedIps, blockIp, unblockIp])
   return <JellyfinContext.Provider value={value}>{children}</JellyfinContext.Provider>
 }
 

@@ -2,12 +2,12 @@
 
 import { ChevronLeft, Maximize, Pause, Play, Settings2, Volume2, VolumeX } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import { directStreamUrl, reportProgress, type JellyfinSession } from "@/lib/jellyfin"
+import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, reportProgress, type JellyfinSession } from "@/lib/jellyfin"
 import { useJellyfin } from "@/components/jellyfin-provider"
 
-type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; onClose: () => void }
+type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; isLive?: boolean; onClose: () => void }
 
-export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, onClose }: Props) {
+export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, isLive = false, onClose }: Props) {
   const { preferences, currentIp, blockIp } = useJellyfin()
   const idleLimit = 120
   const [idleSeconds, setIdleSeconds] = useState(0)
@@ -26,6 +26,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const [retryNonce, setRetryNonce] = useState(0)
   const [logs, setLogs] = useState<string[]>([])
   const [showLogs, setShowLogs] = useState(false)
+  const [tvMode, setTvMode] = useState(false)
   const log = (message: string) => setLogs((items) => [...items.slice(-7), `${new Date().toLocaleTimeString()} · ${message}`])
 
   function revealControls() { setControls(true); if (hideTimer.current) window.clearTimeout(hideTimer.current); hideTimer.current = window.setTimeout(() => { if (playing) setControls(false) }, 2800) }
@@ -47,6 +48,49 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   }, [onClose])
 
   useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const video = videoRef.current
+      if (!video || event.defaultPrevented || event.target instanceof HTMLInputElement) return
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "Enter"].includes(event.key)) event.preventDefault()
+      if (event.key === "ArrowLeft") seek(video.currentTime - 10)
+      if (event.key === "ArrowRight") seek(video.currentTime + 10)
+      if (event.key === "ArrowUp") { video.volume = Math.min(1, video.volume + 0.1); setMuted(false) }
+      if (event.key === "ArrowDown") { video.volume = Math.max(0, video.volume - 0.1); setMuted(video.volume === 0) }
+      if (event.key === " " || event.key === "Enter") togglePlay()
+      if (event.key === "Escape") onClose()
+      revealControls()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [onClose])
+
+  useEffect(() => {
+    if (!tvMode) return
+    let frame = 0
+    let previous = 0
+    let previousButtons: boolean[] = []
+    const poll = () => {
+      const pad = navigator.getGamepads?.().find(Boolean)
+      if (pad) {
+        const now = performance.now()
+        const pressed = pad.buttons.map((button) => button.pressed)
+        const justPressed = (index: number) => pressed[index] && !previousButtons[index]
+        if (now - previous > 250) {
+          if (justPressed(0)) togglePlay()
+          else if (justPressed(1)) onClose()
+          else if (justPressed(4) || (pad.axes[0] ?? 0) < -0.6) seek((videoRef.current?.currentTime ?? 0) - 10)
+          else if (justPressed(5) || (pad.axes[0] ?? 0) > 0.6) seek((videoRef.current?.currentTime ?? 0) + 10)
+          if (pressed.some(Boolean) || Math.abs(pad.axes[0] ?? 0) > 0.6) previous = now
+        }
+        previousButtons = pressed
+      }
+      frame = requestAnimationFrame(poll)
+    }
+    frame = requestAnimationFrame(poll)
+    return () => cancelAnimationFrame(frame)
+  }, [tvMode, onClose])
+
+  useEffect(() => {
     const video = videoRef.current
     if (!video) return
     const idleTimer = window.setInterval(() => {
@@ -63,16 +107,43 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   }, [blockIp, currentIp])
 
   useEffect(() => {
+    if (!("mediaSession" in navigator)) return
+    const mediaSession = navigator.mediaSession
+    if ("MediaMetadata" in window) {
+      mediaSession.metadata = new MediaMetadata({ title, artist: subtitle || "Jellyfin", album: "JFLX" })
+    }
+    const setHandler = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+      try { mediaSession.setActionHandler(action, handler) } catch { /* Browser does not support this action. */ }
+    }
+    setHandler("play", () => { void videoRef.current?.play() })
+    setHandler("pause", () => videoRef.current?.pause())
+    setHandler("seekbackward", (details) => { const video = videoRef.current; if (video) seek(video.currentTime - (details.seekOffset ?? 10)) })
+    setHandler("seekforward", (details) => { const video = videoRef.current; if (video) seek(video.currentTime + (details.seekOffset ?? 10)) })
+    setHandler("seekto", (details) => { if (details.seekTime != null) seek(details.seekTime) })
+    const updatePosition = () => {
+      const video = videoRef.current
+      if (!video || !Number.isFinite(video.duration) || !Number.isFinite(video.currentTime) || !mediaSession.setPositionState) return
+      try { mediaSession.setPositionState({ duration: video.duration, playbackRate: video.playbackRate, position: video.currentTime }) } catch { /* Position state is not available in every browser. */ }
+    }
+    const video = videoRef.current
+    video?.addEventListener("timeupdate", updatePosition)
+    video?.addEventListener("durationchange", updatePosition)
+    return () => {
+      video?.removeEventListener("timeupdate", updatePosition)
+      video?.removeEventListener("durationchange", updatePosition)
+      for (const action of ["play", "pause", "seekbackward", "seekforward", "seekto"] as MediaSessionAction[]) setHandler(action, null)
+      mediaSession.metadata = null
+    }
+  }, [title, subtitle])
+
+  useEffect(() => {
     const video = videoRef.current
     if (!video) return
     setReady(false); setError(null); setRetrying(false); setLogs([])
     video.crossOrigin = "anonymous"
-    const directUrl = directStreamUrl(session, itemId)
     const startSeconds = startPositionTicks ? startPositionTicks / 10_000_000 : 0
-    log("Initialisation du flux direct Jellyfin")
+    log(isLive ? "Ouverture de la session TV Jellyfin" : "Initialisation du flux direct Jellyfin")
     log("Connexion au fichier vidéo original")
-    video.src = directUrl
-    video.preload = "auto"
     const begin = () => { if (startSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = startSeconds; log("Métadonnées reçues, lecteur prêt"); if (preferences.autoplay) void video.play().catch(() => log("Lecture automatique bloquée par le navigateur")) }
     video.addEventListener("loadedmetadata", begin, { once: true })
     const fallbackTimer = window.setTimeout(() => { if (!video.readyState && !ready) { log("Délai du flux direct dépassé"); setError("Le flux direct Jellyfin ne répond pas. Vérifiez le format et les permissions du serveur.") } }, 15000)
@@ -82,12 +153,28 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     const onTime = () => { setProgress(video.currentTime); setDuration(video.duration || 0); if (video.duration && !video.paused) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: String(Math.round((video.currentTime / video.duration) * 100)) }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } }
     const onError = () => setError("Ce format n'est pas lisible par le navigateur ou le serveur.")
     video.addEventListener("canplay", onReady); video.addEventListener("playing", onPlay); video.addEventListener("pause", onPause); video.addEventListener("timeupdate", onTime); video.addEventListener("durationchange", onTime); video.addEventListener("error", onError)
+    let cancelled = false
+    let liveStreamUrl: string | null = null
+    void (async () => {
+      try {
+        const streamUrl = isLive ? await getLiveTvStreamUrl(session, itemId) : directStreamUrl(session, itemId)
+        if (cancelled) {
+          if (isLive) await closeLiveTvStream(session, streamUrl).catch(() => undefined)
+          return
+        }
+        if (isLive) liveStreamUrl = streamUrl
+        video.src = streamUrl
+        video.preload = "auto"
+      } catch (streamError) {
+        setError(streamError instanceof Error ? streamError.message : "Impossible d’ouvrir ce flux Jellyfin.")
+      }
+    })()
     const interval = window.setInterval(() => { if (!video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
-    return () => { window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeAttribute("src"); video.load() }
-  }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce])
+    return () => { cancelled = true; if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeAttribute("src"); video.load() }
+  }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce, isLive])
 
-  return <div ref={shellRef} onMouseMove={revealControls} onTouchStart={revealControls} className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-label={`Lecteur : ${title}`}>
-    <div className={`absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/85 to-transparent px-5 pb-14 pt-5 transition-opacity duration-300 ${controls ? "opacity-100" : "pointer-events-none opacity-0"}`}><button type="button" onClick={onClose} className="flex items-center gap-2 text-sm font-medium text-white/85 hover:text-white"><ChevronLeft className="size-6" /> Retour</button><div className="text-center"><h2 className="font-semibold">{title}</h2>{subtitle ? <p className="text-xs text-white/55">{subtitle}</p> : null}{language ? <p className="text-xs text-cyan-200/80">Langue : {language}</p> : null}</div><button type="button" onClick={() => setShowLogs((value) => !value)} className="flex items-center gap-2 text-xs text-white/70 hover:text-white" aria-label="Afficher les logs"><Settings2 className="size-5" /> Logs</button></div>
+  return     <div ref={shellRef} onMouseMove={revealControls} onTouchStart={revealControls} className={`fixed inset-0 z-50 flex flex-col bg-black text-white ${tvMode ? "cursor-none" : ""} animate-in fade-in zoom-in-95 duration-500`} role="dialog" aria-label={`Lecteur : ${title}`}>
+    <div className={`absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/85 to-transparent px-5 pb-14 pt-5 transition-opacity duration-300 ${controls ? "opacity-100" : "pointer-events-none opacity-0"}`}><button type="button" onClick={onClose} className="flex items-center gap-2 text-sm font-medium text-white/85 hover:text-white"><ChevronLeft className="size-6" /> Retour au catalogue</button><div className="text-center"><h2 className="font-semibold">{title}</h2>{subtitle ? <p className="text-xs text-white/55">{subtitle}</p> : null}{language ? <p className="text-xs text-cyan-200/80">Langue : {language}</p> : null}</div><div className="flex items-center gap-3"><button type="button" onClick={() => { setTvMode((value) => !value); if (!tvMode) void shellRef.current?.requestFullscreen() }} aria-pressed={tvMode} className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">{tvMode ? "Mode TV activé" : "Mode TV"}</button><button type="button" onClick={() => setShowLogs((value) => !value)} className="flex items-center gap-2 text-xs text-white/70 hover:text-white" aria-label="Afficher les logs"><Settings2 className="size-5" /> Logs</button></div></div>
     <div className="relative flex min-h-0 flex-1 items-center justify-center" onDoubleClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }}>
       <video ref={videoRef} playsInline className={`h-full w-full object-contain transition-opacity duration-500 ${ready ? "opacity-100" : "opacity-0"}`} onClick={togglePlay} />
       {showLogs ? <aside className="absolute right-5 top-20 z-40 w-[min(420px,calc(100%-2.5rem))] rounded-2xl border border-white/15 bg-black/80 p-4 font-mono text-[11px] text-white/75 shadow-2xl backdrop-blur-xl"><div className="mb-3 flex items-center justify-between font-sans text-sm text-white"><span>Diagnostic de lecture</span><button type="button" onClick={() => setShowLogs(false)} aria-label="Fermer les logs">Fermer</button></div><div className="max-h-44 overflow-auto">{logs.length ? logs.map((entry, index) => <p key={`${entry}-${index}`} className="border-b border-white/5 py-1">{entry}</p>) : <p>Aucun événement.</p>}</div></aside> : null}
@@ -95,7 +182,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       {!ready ? <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-black">{backdropUrl ? <img src={backdropUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-35 blur-sm" /> : null}<div className="absolute inset-0 bg-black/50" /> <div className="relative text-center">{error ? <><p className="max-w-sm text-sm text-red-100">{error}</p><button type="button" onClick={() => { setRetrying(true); setRetryNonce((value) => value + 1) }} className="mt-5 rounded-md bg-[#e50914] px-5 py-2 text-sm font-semibold transition hover:bg-[#f6121d] disabled:opacity-60" disabled={retrying}>{retrying ? "Nouvel essai…" : "Réessayer"}</button><p className="mt-3 max-w-sm text-xs text-white/45">Jellyfin transcode automatiquement les formats AVI, MKV et MP4 compatibles serveur.</p></> : <><div className="mx-auto size-12 animate-spin rounded-full border-4 border-white/20 border-t-[#e50914]" /><p className="mt-5 font-medium">Préparation de la lecture</p><p className="mt-1 text-xs uppercase tracking-[.25em] text-white/45">{title}</p></>}</div></div> : null}
       {ready && !playing && !error ? <button type="button" onClick={togglePlay} className="absolute left-1/2 top-1/2 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-black shadow-2xl transition hover:scale-105" aria-label="Lire"><Play className="ml-1 size-7 fill-current" /></button> : null}
     </div>
-    <div className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-5 pb-5 pt-16 transition-opacity duration-300 ${controls && ready ? "opacity-100" : "pointer-events-none opacity-0"}`}><input aria-label="Position dans la vidéo" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(progress, duration || 0)} onChange={(e) => seek(Number(e.target.value))} className="player-range w-full" /><div className="mt-3 flex items-center gap-4"><button type="button" onClick={togglePlay} aria-label={playing ? "Pause" : "Lire"} className="hover:text-[#e50914]">{playing ? <Pause className="size-5 fill-current" /> : <Play className="size-5 fill-current" />}</button><button type="button" onClick={() => { const video = videoRef.current; if (video) { video.muted = !video.muted; setMuted(video.muted) } }} aria-label={muted ? "Activer le son" : "Couper le son"}>{muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}</button><span className="text-xs text-white/60">{formatTime(progress)} / {formatTime(duration)}</span><span className="ml-auto" /><button type="button" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }} aria-label="Plein écran"><Maximize className="size-5" /></button></div></div>
+    <div className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-5 pb-5 pt-16 transition-opacity duration-300 ${controls && ready ? "opacity-100" : "pointer-events-none opacity-0"}`}><input aria-label="Position dans la vidéo" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(progress, duration || 0)} onChange={(e) => seek(Number(e.target.value))} className="player-range w-full" /><div className="mt-3 flex items-center gap-4"><button type="button" onClick={togglePlay} aria-label={playing ? "Pause" : "Lire"} className="hover:text-[#e50914]">{playing ? <Pause className="size-5 fill-current" /> : <Play className="size-5 fill-current" />}</button><button type="button" onClick={() => seek(progress - 10)} aria-label="Reculer de 10 secondes" className="rounded px-1 text-xs font-medium text-white/80 hover:text-white">−10 s</button><button type="button" onClick={() => seek(progress + 10)} aria-label="Avancer de 10 secondes" className="rounded px-1 text-xs font-medium text-white/80 hover:text-white">+10 s</button><button type="button" onClick={() => { const video = videoRef.current; if (video) { video.muted = !video.muted; setMuted(video.muted) } }} aria-label={muted ? "Activer le son" : "Couper le son"}>{muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}</button><span className="text-xs text-white/60">{formatTime(progress)} / {formatTime(duration)}</span><span className="ml-auto" /><button type="button" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }} aria-label="Plein écran"><Maximize className="size-5" /></button></div></div>
   </div>
 }
 function formatTime(seconds: number) { if (!Number.isFinite(seconds)) return "00:00"; const h = Math.floor(seconds / 3600); const m = Math.floor((seconds % 3600) / 60); const s = Math.floor(seconds % 60); return `${h ? `${h}:` : ""}${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` }

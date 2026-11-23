@@ -4,11 +4,11 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { Check, Eye, EyeOff, Fingerprint, Loader2, Play, RefreshCw, ShieldCheck, Wifi, WifiOff } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
-import { VisitSplash } from "@/components/visit-splash"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { SERVER_URL } from "@/lib/jellyfin"
+import { MobileActivation } from "@/components/mobile-activation"
 
 export function LoginForm() {
   const { login, serverHealth } = useJellyfin()
@@ -33,6 +33,12 @@ export function LoginForm() {
     memory?: number
     cores?: number
   }>({ status: "checking", secure: false, cookies: false })
+  const [mobileDevice, setMobileDevice] = useState(false)
+
+  useEffect(() => {
+    const mobileAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+    setMobileDevice(mobileAgent || window.matchMedia("(max-width: 767px)").matches)
+  }, [])
 
   useEffect(() => {
     const memory = "deviceMemory" in navigator
@@ -94,6 +100,8 @@ export function LoginForm() {
     setCaptchaPassed(value.trim() === String(captcha.a + captcha.b))
   }
 
+  if (mobileDevice) return <MobileActivation />
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -119,7 +127,6 @@ export function LoginForm() {
 
   return (
     <>
-      <VisitSplash />
       <main className="login-stage relative min-h-dvh overflow-hidden bg-[#080808] text-white">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(229,9,20,.24),transparent_42%),radial-gradient(ellipse_at_bottom_left,rgba(0,164,220,.12),transparent_40%)]" />
       <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/20 to-black" />
@@ -150,7 +157,7 @@ export function LoginForm() {
             <div className={`ip-security-card mt-3 flex items-center gap-3 rounded-lg border px-3 py-2.5 text-xs ${ipChanged ? "border-amber-400/30 bg-amber-400/[.08]" : ipStatus === "verified" ? "border-emerald-400/20 bg-emerald-400/[.06]" : "border-white/10 bg-white/[.03]"}`} aria-live="polite">
               <Fingerprint className={`size-4 shrink-0 ${ipStatus === "verified" ? "text-emerald-400" : "text-white/45"}`} />
               <span className="min-w-0 flex-1 text-white/55">
-                {ipStatus === "checking" ? "Vérification de votre adresse IP…" : ipStatus === "verified" ? `Connexion protégée · IP ${clientIp}` : "IP non disponible · vérification locale active"}
+                {ipStatus === "checking" ? "Vérification de votre adresse IP…" : ipStatus === "verified" ? `Adresse publique détectée · ${clientIp}` : "IP non disponible · vérification locale active"}
               </span>
               <span className={`size-2 shrink-0 rounded-full ${ipStatus === "verified" ? "bg-emerald-400" : ipStatus === "checking" ? "bg-amber-300 animate-pulse" : "bg-white/30"}`} />
             </div>
@@ -174,9 +181,9 @@ export function LoginForm() {
               <div className="flex flex-col gap-2"><Label htmlFor="username" className="text-white/75">Nom d&apos;utilisateur</Label><Input id="username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Votre identifiant" required autoFocus className="h-12 border-white/10 bg-[#333] text-white placeholder:text-white/40 focus-visible:border-white/40 focus-visible:ring-0" /></div>
               <div className="flex flex-col gap-2"><Label htmlFor="password" className="text-white/75">Mot de passe</Label><div className="relative"><Input id="password" type={showPassword ? "text" : "password"} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Votre mot de passe" className="h-12 border-white/10 bg-[#333] pr-11 text-white placeholder:text-white/40 focus-visible:border-white/40 focus-visible:ring-0" /><button type="button" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/55 hover:text-white">{showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button></div></div>
               <div className="rounded-lg border border-white/10 bg-white/[.04] p-3">
-                <div className="mb-2 flex items-center justify-between"><span className="flex items-center gap-2 text-xs font-semibold text-white/70"><ShieldCheck className="size-4 text-[#e50914]" /> Vérification de sécurité</span><button type="button" onClick={refreshCaptcha} aria-label="Nouveau défi" className="text-white/45 transition hover:rotate-90 hover:text-white"><RefreshCw className="size-4" /></button></div>
-                <div className="flex items-center gap-2"><span className="flex h-10 flex-1 items-center justify-center rounded-md bg-[repeating-linear-gradient(135deg,rgba(229,9,20,.2)_0,rgba(229,9,20,.2)_2px,transparent_2px,transparent_8px)] text-lg font-black tracking-[.35em] text-white">{captcha.a} + {captcha.b} = ?</span><Input aria-label="Réponse au défi" inputMode="numeric" value={captchaAnswer} onChange={(e) => verifyCaptcha(e.target.value)} placeholder="?" className="h-10 w-20 border-white/10 bg-[#333] text-center text-white" required /></div>
-                {captchaPassed ? <p className="mt-2 flex items-center gap-1 text-xs text-emerald-400"><Check className="size-3" /> Vérification réussie</p> : <p className="mt-2 text-xs text-white/40">Prouvez que vous êtes humain pour continuer.</p>}
+                <div className="mb-2 flex items-center justify-between"><span className="flex items-center gap-2 text-xs font-semibold text-white/70"><ShieldCheck className="size-4 text-[#e50914]" /> Défi de vérification local</span><button type="button" onClick={refreshCaptcha} aria-label="Nouveau défi" className="text-white/45 transition hover:rotate-90 hover:text-white"><RefreshCw className="size-4" /></button></div>
+                <div className="flex items-center gap-2"><span className="flex h-10 flex-1 items-center justify-center rounded-md bg-[repeating-linear-gradient(135deg,rgba(229,9,20,.2)_0,rgba(229,9,20,.2)_2px,transparent_2px,transparent_8px)] text-lg font-black tracking-[.35em] text-white">{captcha.a} + {captcha.b} = ?</span><Input aria-label="Réponse au défi local" inputMode="numeric" value={captchaAnswer} onChange={(e) => verifyCaptcha(e.target.value)} placeholder="?" className="h-10 w-20 border-white/10 bg-[#333] text-center text-white" required /></div>
+                {captchaPassed ? <p className="mt-2 flex items-center gap-1 text-xs text-emerald-400"><Check className="size-3" /> Vérification réussie</p> : <p className="mt-2 text-xs text-white/40">Répondez au défi pour continuer. Ce contrôle s’exécute dans votre navigateur et ne remplace pas une protection anti-bot côté serveur.</p>}
               </div>
               {error ? <p role="alert" className="rounded bg-[#e50914]/15 px-3 py-2 text-sm text-red-200">{error}</p> : null}
               <Button type="submit" disabled={loading} className="h-12 w-full bg-[#e50914] font-bold text-white hover:bg-[#f6121d]">{loading ? <><Loader2 className="size-4 animate-spin" /> Connexion…</> : "S'identifier"}</Button>

@@ -46,6 +46,7 @@ function HomeContent({ session }: { session: JellyfinSession }) {
 
       return { resume, views: mediaViews, latestByView }
     },
+    { dedupingInterval: 60_000, revalidateOnFocus: false, keepPreviousData: true },
   )
 
   if (isLoading) {
@@ -127,6 +128,8 @@ function Hero({ item, session }: { item: BaseItem; session: JellyfinSession }) {
           src={backdrop || "/placeholder.svg"}
           alt=""
           crossOrigin="anonymous"
+          loading="eager"
+          fetchPriority="high"
           className="absolute inset-0 h-full w-full object-cover"
         />
       ) : (
