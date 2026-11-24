@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import useSWR from "swr"
-import { Loader2, Play, Library } from "lucide-react"
+import { Loader2, Play, Library, Film, Tv, Clapperboard } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { MediaRow } from "@/components/media-row"
 import { Button } from "@/components/ui/button"
@@ -49,13 +49,7 @@ function HomeContent({ session }: { session: JellyfinSession }) {
     { dedupingInterval: 60_000, revalidateOnFocus: false, keepPreviousData: true },
   )
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-[60dvh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
+  if (isLoading) return <HomeSkeleton />
 
   if (error) {
     return (
@@ -76,9 +70,10 @@ function HomeContent({ session }: { session: JellyfinSession }) {
     data.resume[0] ?? data.latestByView.flatMap((l) => l.items)[0] ?? null
 
   return (
-    <div className="flex flex-col gap-10 pb-20 netflix-fade-up">
-      {hero ? <Hero item={hero} session={session} /> : <div className="h-4" />}
-
+    <div className="min-h-screen bg-[#090a0d] pb-24 text-white netflix-fade-up">
+      {hero ? <Hero item={hero} session={session} /> : <div className="mx-auto flex min-h-[48dvh] max-w-5xl flex-col items-center justify-center px-6 text-center"><Library className="size-12 text-white/35" /><h1 className="mt-5 text-3xl font-semibold">Bienvenue dans votre cinéma</h1><p className="mt-2 max-w-lg text-sm text-white/55">Ajoutez des bibliothèques Jellyfin pour retrouver ici vos films et séries.</p></div>}
+      <main className="mx-auto flex max-w-[1600px] flex-col gap-10 pt-8">
+      <section className="flex flex-wrap items-end justify-between gap-4 px-4 sm:px-7 lg:px-10"><div><p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.24em] text-[#d9a76a]"><Clapperboard className="size-4" />Votre univers Jellyfin</p><h2 className="text-2xl font-semibold tracking-tight sm:text-4xl">À la une</h2><p className="mt-2 text-sm text-white/50">Films et séries, réunis au même endroit.</p></div><div className="flex flex-wrap gap-2"><Link href="/films" className="inline-flex min-h-10 items-center gap-2 rounded-full border border-white/15 bg-white/[.04] px-4 text-sm text-white/75 transition hover:bg-white/10"><Film className="size-4" />Films</Link><Link href="/series" className="inline-flex min-h-10 items-center gap-2 rounded-full border border-white/15 bg-white/[.04] px-4 text-sm text-white/75 transition hover:bg-white/10"><Tv className="size-4" />Séries</Link></div></section>
       <MediaRow
         title="Reprendre la lecture"
         items={data.resume}
@@ -113,8 +108,13 @@ function HomeContent({ session }: { session: JellyfinSession }) {
           variant="poster"
         />
       ))}
+      </main>
     </div>
   )
+}
+
+function HomeSkeleton() {
+  return <main role="status" aria-label="Chargement de votre médiathèque" className="min-h-screen animate-in fade-in bg-[#090a0d] px-4 pb-24 text-white sm:px-7 lg:px-10"><div className="mx-auto max-w-[1600px]"><div className="mb-8 h-[50dvh] min-h-72 animate-pulse rounded-3xl bg-[linear-gradient(110deg,#121318_8%,#20212a_18%,#121318_33%)] bg-[length:200%_100%]" /><div className="mb-4 h-5 w-40 animate-pulse rounded bg-white/10" /><div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">{Array.from({ length: 12 }, (_, index) => <div key={index} className="aspect-[2/3] animate-pulse rounded-xl bg-white/[.06]" />)}</div><span className="sr-only"><Loader2 className="size-4 animate-spin" />Chargement de la médiathèque</span></div></main>
 }
 
 function Hero({ item, session }: { item: BaseItem; session: JellyfinSession }) {

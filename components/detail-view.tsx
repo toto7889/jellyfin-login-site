@@ -72,11 +72,7 @@ function DetailContent({
   )
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-[60dvh] items-center justify-center">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    )
+    return <div role="status" aria-label="Chargement de la fiche" className="min-h-[60dvh] animate-in fade-in bg-[#090a0d] px-4 pt-10"><div className="mx-auto max-w-[1600px]"><div className="mb-8 h-[38dvh] min-h-56 animate-pulse rounded-[28px] bg-[linear-gradient(110deg,#121318_8%,#20212a_18%,#121318_33%)] bg-[length:200%_100%]" /><div className="flex gap-5"><div className="h-56 w-40 animate-pulse rounded-xl bg-white/[.06]" /><div className="flex flex-1 flex-col gap-4 pt-8"><div className="h-8 w-2/3 animate-pulse rounded bg-white/10" /><div className="h-4 w-1/3 animate-pulse rounded bg-white/[.06]" /><div className="h-12 w-40 animate-pulse rounded-full bg-white/[.08]" /></div></div></div><Loader2 className="sr-only size-6 animate-spin" /></div>
   }
 
   if (error || !data) {
@@ -118,15 +114,15 @@ function DetailContent({
   const writers = (item.People ?? []).filter((p) => p.Type === "Writer")
 
   return (
-    <div className="pb-16 netflix-fade-up">
-      <div className="relative h-[34dvh] min-h-56 w-full overflow-hidden sm:h-[46dvh] sm:min-h-72">
+    <div className="min-h-screen bg-[#090a0d] pb-24 text-white netflix-fade-up">
+      <div className="relative h-[42dvh] min-h-64 w-full overflow-hidden sm:h-[58dvh] sm:min-h-80">
         {backdrop ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={backdrop || "/placeholder.svg"}
             alt=""
             crossOrigin="anonymous"
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-cover netflix-scale-in"
           />
         ) : (
           <div className="jf-gradient absolute inset-0 opacity-40" />
