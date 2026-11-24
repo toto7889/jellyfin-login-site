@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { SERVER_URL } from "@/lib/jellyfin"
-import { MobileActivation } from "@/components/mobile-activation"
 
 export function LoginForm() {
   const { login, serverHealth } = useJellyfin()
@@ -33,13 +32,6 @@ export function LoginForm() {
     memory?: number
     cores?: number
   }>({ status: "checking", secure: false, cookies: false })
-  const [mobileDevice, setMobileDevice] = useState(false)
-
-  useEffect(() => {
-    const mobileAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
-    setMobileDevice(mobileAgent || window.matchMedia("(max-width: 767px)").matches)
-  }, [])
-
   useEffect(() => {
     const memory = "deviceMemory" in navigator
       ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory
@@ -99,8 +91,6 @@ export function LoginForm() {
     setCaptchaAnswer(value)
     setCaptchaPassed(value.trim() === String(captcha.a + captcha.b))
   }
-
-  if (mobileDevice) return <MobileActivation />
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()

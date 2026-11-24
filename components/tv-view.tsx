@@ -26,7 +26,15 @@ function TvContent({ session }: { session: JellyfinSession }) {
     ["livetv", session.userId],
     async () => {
       const channels = await getLiveTvChannels(session)
-      const programs = await getLiveTvPrograms(session, channels.map((channel) => channel.Id))
+      let programs: BaseItem[] = []
+      if (channels.length) {
+        try {
+          programs = await getLiveTvPrograms(session, channels.map((channel) => channel.Id))
+        } catch {
+          // Program-guide failures must not hide channels that are available to watch.
+          programs = []
+        }
+      }
       return { channels, programs }
     },
     { refreshInterval: 60_000, revalidateOnFocus: true, dedupingInterval: 120_000, keepPreviousData: true },
