@@ -47,6 +47,7 @@ export type BaseItem = {
   People?: Person[]
   Studios?: { Name: string; Id?: string }[]
   Taglines?: string[]
+  Trickplay?: Record<string, Record<string, JellyfinTrickplayInfo>>
   // Live TV / programmes
   ChannelId?: string
   ChannelName?: string
@@ -56,6 +57,15 @@ export type BaseItem = {
   EpisodeTitle?: string
   IsLive?: boolean
   CurrentProgram?: BaseItem
+}
+
+export type JellyfinTrickplayInfo = {
+  Width: number
+  Height: number
+  TileWidth: number
+  TileHeight: number
+  ThumbnailCount: number
+  Interval: number
 }
 
 export type Person = {
@@ -348,6 +358,18 @@ export async function getItem(
     session,
     `/Users/${session.userId}/Items/${itemId}?${params.toString()}`,
   )
+}
+
+export async function getTrickplayManifest(session: JellyfinSession, itemId: string): Promise<JellyfinTrickplayInfo | null> {
+  const params = new URLSearchParams({ Fields: "Trickplay" })
+  const item = await apiFetch<Pick<BaseItem, "Trickplay">>(
+    session,
+    `/Items/${encodeURIComponent(itemId)}?${params.toString()}`,
+  )
+  const manifests = Object.values(item.Trickplay ?? {}).flatMap((source) => Object.values(source))
+  return manifests.sort((a, b) => a.Width - b.Width).find((manifest) => manifest.Width >= 320)
+    ?? manifests.sort((a, b) => b.Width - a.Width)[0]
+    ?? null
 }
 
 export async function getSeasons(
