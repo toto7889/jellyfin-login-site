@@ -3,15 +3,15 @@
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { BatteryWarning, Captions, ChevronLeft, Heart, Home, Languages, Maximize, Pause, Play, Search, Settings2, Tv, Volume2, VolumeX, WifiOff } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import Hls from "hls.js"
 import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackStreams, getTrickplayManifest, reportProgress, streamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
 import { useJellyfin } from "@/components/jellyfin-provider"
 
-type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; isLive?: boolean; previewMode?: boolean; previewDurationSeconds?: number; onClose: () => void }
+type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; durationTicks?: number; isLive?: boolean; previewMode?: boolean; previewDurationSeconds?: number; isOpen?: boolean; onClose: () => void }
 
-export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, isLive = false, previewMode = false, previewDurationSeconds, onClose }: Props) {
+export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, durationTicks, isLive = false, previewMode = false, previewDurationSeconds, isOpen = true, onClose }: Props) {
   const { preferences, currentIp, blockIp, serverHealth } = useJellyfin()
   const router = useRouter()
   const idleLimit = 120
@@ -24,13 +24,19 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const [error, setError] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
+  const knownDuration = durationTicks && durationTicks > 0 ? durationTicks / 10_000_000 : 0
   const [progress, setProgress] = useState(0)
-  const [duration, setDuration] = useState(0)
+  const [bufferedProgress, setBufferedProgress] = useState(0)
+  const [duration, setDuration] = useState(knownDuration)
+  const fullDuration = duration > 0 && Number.isFinite(duration) ? duration : knownDuration
+  const autoplayRef = useRef(preferences.autoplay)
+  autoplayRef.current = preferences.autoplay
   const [controls, setControls] = useState(true)
   const [retrying, setRetrying] = useState(false)
   const [retryNonce, setRetryNonce] = useState(0)
   const [previewActive, setPreviewActive] = useState(previewMode)
   const [previewLimitReached, setPreviewLimitReached] = useState(false)
+  const playbackIdentity = useRef({ itemId, previewMode })
   const previewActiveRef = useRef(previewMode)
   const previewLimitReachedRef = useRef(false)
   const onCloseRef = useRef(onClose)
@@ -68,6 +74,28 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const log = (message: string) => setLogs((items) => [...items.slice(-7), `${new Date().toLocaleTimeString()} · ${message}`])
 
   useEffect(() => setPortalReady(true), [])
+
+  useEffect(() => {
+    if (playbackIdentity.current.itemId === itemId && playbackIdentity.current.previewMode === previewMode) return
+    playbackIdentity.current = { itemId, previewMode }
+    previewActiveRef.current = previewMode
+    previewLimitReachedRef.current = false
+    setPreviewActive(previewMode)
+    setPreviewLimitReached(false)
+    setProgress(startPositionTicks ? startPositionTicks / 10_000_000 : 0)
+    setBufferedProgress(0)
+    setDuration(knownDuration)
+  }, [itemId, previewMode, startPositionTicks, knownDuration])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (!isOpen) {
+      video.pause()
+      return
+    }
+    if (ready) void video.play().catch(() => undefined)
+  }, [isOpen])
 
   useEffect(() => {
     type NetworkInformation = EventTarget & { effectiveType?: string; downlink?: number; saveData?: boolean }
@@ -108,7 +136,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   function requestExit(destination = "/") { setExitDestination(destination); setShowExitConfirmation(true); revealControls() }
   function confirmExit() { setShowExitConfirmation(false); router.push(exitDestination); onClose() }
   function togglePlay() { const video = videoRef.current; if (!video) return; if (video.paused) { if (batteryGate.current.blocked) { setShowBatteryWarning(true); return } void video.play() } else video.pause(); revealControls() }
-  function seek(value: number) { const video = videoRef.current; if (!video) return; const next = Math.max(0, Math.min(value, video.duration || value)); if (Math.abs(next - video.currentTime) >= 5) { setSeekFeedback(next > video.currentTime ? "+10 s" : "−10 s"); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); seekFeedbackTimer.current = window.setTimeout(() => setSeekFeedback(null), 650) } video.currentTime = next; setProgress(next); revealControls() }
+  function seek(value: number) { const video = videoRef.current; if (!video) return; const maximum = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : fullDuration; const next = Math.max(0, Math.min(value, maximum || value)); if (Math.abs(next - video.currentTime) >= 5) { setSeekFeedback(next > video.currentTime ? "+10 s" : "−10 s"); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); seekFeedbackTimer.current = window.setTimeout(() => setSeekFeedback(null), 650) } video.currentTime = next; setProgress(next); revealControls() }
   function continueAfterPreview() {
     const video = videoRef.current
     previewActiveRef.current = false
@@ -146,7 +174,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const video = videoRef.current
-      if (!video || event.defaultPrevented || event.target instanceof HTMLInputElement) return
+      if (!isOpen || !video || event.defaultPrevented || event.target instanceof HTMLInputElement) return
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "Enter"].includes(event.key)) event.preventDefault()
       if (event.key === "ArrowLeft") seek(video.currentTime - 10)
       if (event.key === "ArrowRight") seek(video.currentTime + 10)
@@ -158,10 +186,10 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [onClose])
+  }, [isOpen, onClose])
 
   useEffect(() => {
-    if (!tvMode) return
+    if (!isOpen || !tvMode) return
     let frame = 0
     let previous = 0
     let previousButtons: boolean[] = []
@@ -184,7 +212,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     }
     frame = requestAnimationFrame(poll)
     return () => cancelAnimationFrame(frame)
-  }, [tvMode, onClose])
+  }, [isOpen, tvMode, onClose])
 
   useEffect(() => {
     const video = videoRef.current
@@ -287,7 +315,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     const startSeconds = startPositionTicks ? startPositionTicks / 10_000_000 : 0
     log(isLive ? "Ouverture de la session TV Jellyfin" : "Initialisation du flux direct Jellyfin")
     log("Chargement des pistes audio et sous-titres")
-    const begin = () => { const resumeAt = restartPosition.current ?? startSeconds; if (resumeAt > 0 && Number.isFinite(video.duration)) video.currentTime = resumeAt; restartPosition.current = null; log("Métadonnées reçues, lecteur prêt"); if (batteryGate.current.blocked) setShowBatteryWarning(true); else if (previewActiveRef.current || preferences.autoplay || restartWasPlaying.current) void video.play().catch(() => log("Lecture automatique bloquée par le navigateur")); restartWasPlaying.current = false }
+    const begin = () => { const resumeAt = restartPosition.current ?? startSeconds; if (resumeAt > 0 && (Number.isFinite(video.duration) || knownDuration > 0)) video.currentTime = resumeAt; restartPosition.current = null; log("Métadonnées reçues, lecteur prêt"); if (batteryGate.current.blocked) setShowBatteryWarning(true); else if (previewActiveRef.current || autoplayRef.current || restartWasPlaying.current) void video.play().catch(() => log("Lecture automatique bloquée par le navigateur")); restartWasPlaying.current = false }
     video.addEventListener("loadedmetadata", begin, { once: true })
     let cancelled = false
     let liveStreamUrl: string | null = null
@@ -331,7 +359,13 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     const onPause = () => { setPlaying(false); setControls(true); if (!previewActiveRef.current && !batteryGate.current.blocked) setSecurityNotice(true) }
     const onTime = () => {
       setProgress(video.currentTime)
-      setDuration(video.duration || 0)
+      const activeDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : knownDuration
+      if (activeDuration > 0) {
+        setBufferedProgress(video.buffered.length ? Math.min(activeDuration, video.buffered.end(video.buffered.length - 1)) : 0)
+        if (Number.isFinite(video.duration) && video.duration > 0) setDuration(video.duration)
+        else setDuration(knownDuration)
+      }
+      else if (knownDuration > 0) setDuration(knownDuration)
       if (previewActiveRef.current && previewDurationSeconds != null && video.currentTime >= previewDurationSeconds && !previewLimitReachedRef.current) {
         previewLimitReachedRef.current = true
         video.pause()
@@ -396,7 +430,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     })()
     const interval = window.setInterval(() => { if (!previewActiveRef.current && !video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
     return () => { cancelled = true; hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeAttribute("src"); video.load() }
-  }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce, isLive, audioIndex, subtitleIndex, quality, portalReady, networkDecision])
+  }, [session, itemId, startPositionTicks, durationTicks, retryNonce, isLive, audioIndex, subtitleIndex, quality, portalReady, networkDecision])
 
   const hoverThumbnailIndex = trickplayInfo && hoverSeekTime != null
     ? Math.min(trickplayInfo.ThumbnailCount - 1, Math.floor((hoverSeekTime * 1000) / trickplayInfo.Interval))
@@ -404,7 +438,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const trickplayCapacity = trickplayInfo ? trickplayInfo.TileWidth * trickplayInfo.TileHeight : 0
   const trickplayTileIndex = hoverThumbnailIndex != null && trickplayCapacity ? Math.floor(hoverThumbnailIndex / trickplayCapacity) : 0
   const trickplayLocalIndex = hoverThumbnailIndex != null && trickplayCapacity ? hoverThumbnailIndex % trickplayCapacity : 0
-  const trickplayScale = trickplayInfo ? 224 / trickplayInfo.Width : 1
+  const trickplayScale = trickplayInfo ? 256 / trickplayInfo.Width : 1
   const trickplayUrl = trickplayInfo
     ? `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/Trickplay/${trickplayInfo.Width}/${trickplayTileIndex}.jpg?api_key=${encodeURIComponent(session.accessToken)}`
     : ""
@@ -414,7 +448,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
 
   if (!portalReady) return null
   return createPortal(
-    <div ref={shellRef} onMouseMove={revealControls} onTouchStart={revealControls} className={`fixed inset-0 z-50 flex flex-col bg-black text-white ${tvMode ? "cursor-none" : ""} animate-in fade-in zoom-in-95 duration-500`} role="dialog" aria-label={`Lecteur : ${title}`}>
+    <div ref={shellRef} onMouseMove={revealControls} onTouchStart={revealControls} className={`${isOpen ? "fixed" : "hidden"} inset-0 z-50 flex flex-col bg-black text-white ${tvMode ? "cursor-none" : ""} animate-in fade-in zoom-in-95 duration-500`} role="dialog" aria-label={`Lecteur : ${title}`}>
     <div className={`absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/85 to-transparent px-5 pb-14 pt-5 transition-opacity duration-300 ${controls ? "opacity-100" : "pointer-events-none opacity-0"}`}><button type="button" onClick={() => requestExit("/")} className="flex items-center gap-2 text-sm font-medium text-white/85 hover:text-white"><ChevronLeft className="size-6" /> Retour au catalogue</button><div className="text-center"><h2 className="font-semibold">{title}</h2>{subtitle ? <p className="text-xs text-white/55">{subtitle}</p> : null}{language ? <p className="text-xs text-cyan-200/80">Langue : {language}</p> : null}</div><div className="flex items-center gap-3"><button type="button" onClick={() => { setTvMode((value) => !value); if (!tvMode) void shellRef.current?.requestFullscreen() }} aria-pressed={tvMode} className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">{tvMode ? "Mode TV activé" : "Mode TV"}</button><button type="button" onClick={() => setShowPages((value) => !value)} aria-expanded={showPages} aria-label="Ouvrir la navigation des pages" className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">Pages</button><button type="button" onClick={() => setShowLogs((value) => !value)} className="flex items-center gap-2 text-xs text-white/70 hover:text-white" aria-label="Afficher les logs"><Settings2 className="size-5" /> Logs</button></div></div>
     {showPages ? <nav aria-label="Navigation principale" className="absolute right-5 top-20 z-40 grid w-56 gap-1 rounded-2xl border border-white/15 bg-[#111]/95 p-2 shadow-2xl backdrop-blur-xl">{[{ href: "/", label: "Accueil", icon: <Home className="size-4" /> }, { href: "/tv", label: "Hub TV", icon: <Tv className="size-4" /> }, { href: "/guide-tv", label: "Guide TV", icon: <Tv className="size-4" /> }, { href: "/search", label: "Recherche", icon: <Search className="size-4" /> }, { href: "/favorites", label: "Favoris", icon: <Heart className="size-4" /> }, { href: "/settings", label: "Paramètres", icon: <Settings2 className="size-4" /> }, { href: "/genres", label: "Genres", icon: <Play className="size-4" /> }, { href: "/cast", label: "Distribution", icon: <Play className="size-4" /> }, { href: "/verification", label: "Vérification", icon: <Settings2 className="size-4" /> }, { href: "/securite", label: "Sécurité", icon: <Settings2 className="size-4" /> }, { href: "/releases", label: "Nouveautés", icon: <Play className="size-4" /> }, { href: "/ip", label: "Mon IP", icon: <Settings2 className="size-4" /> }, { href: "/admin/ip", label: "Administration", icon: <Settings2 className="size-4" /> }].map((page) => <Link key={page.href} href={page.href} onClick={(event) => { event.preventDefault(); requestExit(page.href) }} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/75 transition hover:bg-white/10 hover:text-white">{page.icon}{page.label}</Link>)}</nav> : null}
     <div className="relative flex min-h-0 flex-1 items-center justify-center" onDoubleClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }}>
@@ -427,8 +461,8 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     </div>
     <div className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-5 pb-5 pt-16 transition-opacity duration-300 ${controls && ready ? "opacity-100" : "pointer-events-none opacity-0"}`}>
       <div className="relative">
-        <input aria-label="Position dans la vidéo" type="range" min="0" max={duration || 0} step="0.1" value={Math.min(progress, duration || 0)} onChange={(e) => seek(Number(e.target.value))} onPointerMove={(event) => { if (!trickplayInfo || !duration) return; const rect = event.currentTarget.getBoundingClientRect(); const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)); setHoverSeekTime(fraction * duration) }} onPointerLeave={() => setHoverSeekTime(null)} className="player-range w-full" />
-        {hoverSeekTime != null && hoverThumbnailIndex != null && trickplayInfo ? <div aria-hidden="true" className="pointer-events-none absolute bottom-8 -translate-x-1/2 overflow-hidden rounded-lg border border-white/20 bg-black shadow-xl" style={{ left: `${Math.max(8, Math.min(92, (hoverSeekTime / duration) * 100))}%`, width: 224 }}><div className="w-full bg-cover bg-no-repeat" style={{ aspectRatio: `${trickplayInfo.Width} / ${trickplayInfo.Height}`, backgroundImage: `url("${trickplayUrl}")`, backgroundSize: `${trickplayInfo.Width * trickplayInfo.TileWidth * trickplayScale}px ${trickplayInfo.Height * trickplayInfo.TileHeight * trickplayScale}px`, backgroundPosition: `-${(trickplayLocalIndex % trickplayInfo.TileWidth) * trickplayInfo.Width * trickplayScale}px -${Math.floor(trickplayLocalIndex / trickplayInfo.TileWidth) * trickplayInfo.Height * trickplayScale}px` }} /><p className="px-2 py-1 text-center text-[11px] text-white">{formatTime(hoverSeekTime)}</p></div> : null}
+        <input aria-label="Position dans la vidéo" type="range" min="0" max={fullDuration} step="0.1" value={Math.min(progress, fullDuration)} onChange={(e) => seek(Number(e.target.value))} onPointerMove={(event) => { if (!trickplayInfo || !fullDuration) return; const rect = event.currentTarget.getBoundingClientRect(); const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)); setHoverSeekTime(fraction * fullDuration) }} onPointerLeave={() => setHoverSeekTime(null)} style={{ "--range-progress": `${fullDuration ? Math.min(100, (progress / fullDuration) * 100) : 0}%`, "--range-buffered": `${fullDuration ? Math.min(100, Math.max(progress, bufferedProgress) / fullDuration * 100) : 0}%` } as CSSProperties} className="player-range w-full" />
+        {hoverSeekTime != null && hoverThumbnailIndex != null && trickplayInfo ? <div aria-hidden="true" className="pointer-events-none absolute bottom-8 -translate-x-1/2 overflow-hidden rounded-lg border border-white/20 bg-black shadow-xl" style={{ left: `clamp(128px, ${(hoverSeekTime / fullDuration) * 100}%, calc(100% - 128px))`, width: 256 }}><div className="w-full bg-cover bg-no-repeat" style={{ aspectRatio: `${trickplayInfo.Width} / ${trickplayInfo.Height}`, backgroundImage: `url("${trickplayUrl}")`, backgroundSize: `${trickplayInfo.Width * trickplayInfo.TileWidth * trickplayScale}px ${trickplayInfo.Height * trickplayInfo.TileHeight * trickplayScale}px`, backgroundPosition: `-${(trickplayLocalIndex % trickplayInfo.TileWidth) * trickplayInfo.Width * trickplayScale}px -${Math.floor(trickplayLocalIndex / trickplayInfo.TileWidth) * trickplayInfo.Height * trickplayScale}px` }} /><p className="px-2 py-1 text-center text-[11px] text-white">{formatTime(hoverSeekTime)}</p></div> : null}
       </div>
       {seekFeedback ? <div aria-live="polite" className="pointer-events-none absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2 animate-in fade-in zoom-in-90 rounded-full bg-black/65 px-5 py-3 text-lg font-semibold text-white">{seekFeedback}</div> : null}
       {!isLive ? <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -437,7 +471,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
         <label className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/45 px-3 py-2 text-xs text-white/65"><span>Qualité</span><select aria-label="Qualité vidéo" value={quality} onChange={(event) => { restartPosition.current = videoRef.current?.currentTime ?? progress; restartWasPlaying.current = !videoRef.current?.paused; setQuality(event.target.value) }} className="bg-transparent text-white outline-none [&>option]:bg-[#171717]"><option value="auto">Automatique</option><option value="1080p">1080p</option><option value="720p">720p</option><option value="480p">480p</option></select></label>
         {batteryPercent != null ? <span className={`ml-auto flex items-center gap-1 text-xs ${batteryPercent <= 20 ? "text-amber-300" : "text-white/45"}`}><BatteryWarning className="size-4" />{batteryPercent}%</span> : null}
       </div> : null}
-      <div className="mt-3 flex items-center gap-4"><button type="button" onClick={togglePlay} aria-label={playing ? "Pause" : "Lire"} className="hover:text-[#e50914]">{playing ? <Pause className="size-5 fill-current" /> : <Play className="size-5 fill-current" />}</button><button type="button" onClick={() => seek(progress - 10)} aria-label="Reculer de 10 secondes" className="rounded px-1 text-xs font-medium text-white/80 hover:text-white">−10 s</button><button type="button" onClick={() => seek(progress + 10)} aria-label="Avancer de 10 secondes" className="rounded px-1 text-xs font-medium text-white/80 hover:text-white">+10 s</button><button type="button" onClick={() => { const video = videoRef.current; if (video) { video.muted = !video.muted; setMuted(video.muted) } }} aria-label={muted ? "Activer le son" : "Couper le son"}>{muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}</button><span className="text-xs text-white/60">{formatTime(progress)} / {formatTime(duration)}</span><span className="ml-auto" /><button type="button" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }} aria-label="Plein écran"><Maximize className="size-5" /></button></div>
+      <div className="mt-3 flex items-center gap-4"><button type="button" onClick={togglePlay} aria-label={playing ? "Pause" : "Lire"} className="hover:text-[#e50914]">{playing ? <Pause className="size-5 fill-current" /> : <Play className="size-5 fill-current" />}</button><button type="button" onClick={() => seek(progress - 10)} aria-label="Reculer de 10 secondes" className="rounded px-1 text-xs font-medium text-white/80 hover:text-white">−10 s</button><button type="button" onClick={() => seek(progress + 10)} aria-label="Avancer de 10 secondes" className="rounded px-1 text-xs font-medium text-white/80 hover:text-white">+10 s</button><button type="button" onClick={() => { const video = videoRef.current; if (video) { video.muted = !video.muted; setMuted(video.muted) } }} aria-label={muted ? "Activer le son" : "Couper le son"}>{muted ? <VolumeX className="size-5" /> : <Volume2 className="size-5" />}</button><span className="text-xs text-white/60">{formatTime(progress)} / {formatTime(fullDuration)}</span><span className="ml-auto" /><button type="button" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }} aria-label="Plein écran"><Maximize className="size-5" /></button></div>
     </div>
     {networkDecision === "warning" ? <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" role="presentation"><section role="alertdialog" aria-modal="true" aria-labelledby="network-warning-title" aria-describedby="network-warning-description" className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#141414] p-6 shadow-2xl sm:p-8"><div className="mb-5 flex size-12 items-center justify-center rounded-2xl border border-amber-300/20 bg-amber-300/10 text-amber-200"><WifiOff className="size-6" /></div><p className="text-xs font-semibold uppercase tracking-[.2em] text-amber-200">Qualité réseau insuffisante</p><h2 id="network-warning-title" className="mt-2 text-xl font-semibold text-white sm:text-2xl">Votre connexion n&apos;est pas assez bonne</h2><p id="network-warning-description" className="mt-3 text-sm leading-relaxed text-white/65">Votre connexion ne semble pas suffisante pour regarder un film ou la TV en streaming avec une bonne qualité. Vous pouvez tout de même continuer, quitter ou réduire la qualité vidéo.</p><div className="mt-5 flex flex-wrap gap-2 text-xs text-white/55"><span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">Ping serveur : {serverHealth?.online ? `${serverHealth.latencyMs ?? "—"} ms` : "injoignable"}</span>{networkProfile.effectiveType ? <span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">Réseau : {networkProfile.effectiveType.toUpperCase()}</span> : null}{networkProfile.downlink != null ? <span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">Débit estimé : {networkProfile.downlink} Mb/s</span> : null}</div><div className="mt-7 grid gap-3"><button type="button" onClick={() => setNetworkDecision("continue")} className="rounded-xl bg-[#e50914] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#f6121d]">Continuer quand même</button><button type="button" onClick={() => requestExit("/")} className="rounded-xl border border-white/15 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Quitter</button><button type="button" onClick={() => { setQuality("480p"); setNetworkDecision("continue") }} className="rounded-xl border border-white/15 bg-white/[.04] px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Lire avec une qualité inférieure · 480p</button></div></section></div> : null}
     {showBatteryWarning && networkDecision !== "warning" ? <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" role="presentation"><section role="alertdialog" aria-modal="true" aria-labelledby="battery-warning-title" aria-describedby="battery-warning-description" className="w-full max-w-md rounded-3xl border border-amber-200/20 bg-[#151515] p-6 shadow-2xl sm:p-8"><div className="mb-5 flex size-12 items-center justify-center rounded-2xl bg-amber-400/10 text-amber-300"><BatteryWarning className="size-6" /></div><p className="text-xs font-semibold uppercase tracking-[.2em] text-amber-300">MODE DANGER · {batteryPercent}%</p><h2 id="battery-warning-title" className="mt-2 text-xl font-semibold">Lecture suspendue pour préserver la batterie</h2><p id="battery-warning-description" className="mt-2 text-sm leading-relaxed text-white/60">{batteryNotice}</p><div className="mt-6"><button type="button" onClick={() => requestExit("/")} className="w-full rounded-xl border border-white/15 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Arrêter la lecture et retourner au catalogue</button></div></section></div> : null}
