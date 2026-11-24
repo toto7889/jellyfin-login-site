@@ -29,6 +29,13 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const [controls, setControls] = useState(true)
   const [retrying, setRetrying] = useState(false)
   const [retryNonce, setRetryNonce] = useState(0)
+  const [previewActive, setPreviewActive] = useState(previewMode)
+  const [previewLimitReached, setPreviewLimitReached] = useState(false)
+  const previewActiveRef = useRef(previewMode)
+  const previewLimitReachedRef = useRef(false)
+  const onCloseRef = useRef(onClose)
+  previewActiveRef.current = previewActive
+  onCloseRef.current = onClose
   const [logs, setLogs] = useState<string[]>([])
   const [showLogs, setShowLogs] = useState(false)
   const [showPages, setShowPages] = useState(false)
@@ -102,6 +109,14 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   function confirmExit() { setShowExitConfirmation(false); router.push(exitDestination); onClose() }
   function togglePlay() { const video = videoRef.current; if (!video) return; if (video.paused) { if (batteryGate.current.blocked) { setShowBatteryWarning(true); return } void video.play() } else video.pause(); revealControls() }
   function seek(value: number) { const video = videoRef.current; if (!video) return; const next = Math.max(0, Math.min(value, video.duration || value)); if (Math.abs(next - video.currentTime) >= 5) { setSeekFeedback(next > video.currentTime ? "+10 s" : "−10 s"); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); seekFeedbackTimer.current = window.setTimeout(() => setSeekFeedback(null), 650) } video.currentTime = next; setProgress(next); revealControls() }
+  function continueAfterPreview() {
+    const video = videoRef.current
+    previewActiveRef.current = false
+    previewLimitReachedRef.current = false
+    setPreviewActive(false)
+    setPreviewLimitReached(false)
+    if (video) void video.play().catch(() => log("Lecture automatique bloquée par le navigateur"))
+  }
 
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -272,7 +287,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     const startSeconds = startPositionTicks ? startPositionTicks / 10_000_000 : 0
     log(isLive ? "Ouverture de la session TV Jellyfin" : "Initialisation du flux direct Jellyfin")
     log("Chargement des pistes audio et sous-titres")
-    const begin = () => { const resumeAt = restartPosition.current ?? startSeconds; if (resumeAt > 0 && Number.isFinite(video.duration)) video.currentTime = resumeAt; restartPosition.current = null; log("Métadonnées reçues, lecteur prêt"); if (batteryGate.current.blocked) setShowBatteryWarning(true); else if (previewMode || preferences.autoplay || restartWasPlaying.current) void video.play().catch(() => log("Lecture automatique bloquée par le navigateur")); restartWasPlaying.current = false }
+    const begin = () => { const resumeAt = restartPosition.current ?? startSeconds; if (resumeAt > 0 && Number.isFinite(video.duration)) video.currentTime = resumeAt; restartPosition.current = null; log("Métadonnées reçues, lecteur prêt"); if (batteryGate.current.blocked) setShowBatteryWarning(true); else if (previewActiveRef.current || preferences.autoplay || restartWasPlaying.current) void video.play().catch(() => log("Lecture automatique bloquée par le navigateur")); restartWasPlaying.current = false }
     video.addEventListener("loadedmetadata", begin, { once: true })
     let cancelled = false
     let liveStreamUrl: string | null = null
@@ -312,9 +327,22 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       }
     }, 7000)
     const onReady = () => { log("Flux prêt à être lu"); setReady(true) }
-    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); if (!previewMode) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
-    const onPause = () => { setPlaying(false); setControls(true); if (!previewMode && !batteryGate.current.blocked) setSecurityNotice(true) }
-    const onTime = () => { setProgress(video.currentTime); setDuration(video.duration || 0); if (previewMode && previewDurationSeconds != null && video.currentTime >= previewDurationSeconds) { onClose(); return } if (!previewMode && video.duration && !video.paused) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: String(Math.round((video.currentTime / video.duration) * 100)) }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } }
+    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); if (!previewActiveRef.current) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
+    const onPause = () => { setPlaying(false); setControls(true); if (!previewActiveRef.current && !batteryGate.current.blocked) setSecurityNotice(true) }
+    const onTime = () => {
+      setProgress(video.currentTime)
+      setDuration(video.duration || 0)
+      if (previewActiveRef.current && previewDurationSeconds != null && video.currentTime >= previewDurationSeconds && !previewLimitReachedRef.current) {
+        previewLimitReachedRef.current = true
+        video.pause()
+        setPreviewLimitReached(true)
+        return
+      }
+      if (!previewActiveRef.current && video.duration && !video.paused) {
+        const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: String(Math.round((video.currentTime / video.duration) * 100)) })
+        window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`)
+      }
+    }
     const onError = () => {
       if (!isLive && !compatibilityFallbackStarted) void startCompatibilityFallback()
       else setError("Le format n’est pas lisible par le navigateur ou le serveur Jellyfin.")
@@ -338,17 +366,37 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
           if (isLive) await closeLiveTvStream(session, streamUrl).catch(() => undefined)
           return
         }
-        if (isLive) liveStreamUrl = streamUrl
+        liveStreamUrl = streamUrl
         video.preload = "auto"
-        video.src = streamUrl
-        video.load()
+        if (/\.m3u8(?:$|[?#])/i.test(streamUrl)) {
+          log("Playlist HLS détectée pour la télévision en direct")
+          if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            video.src = streamUrl
+            video.load()
+          } else if (Hls.isSupported()) {
+            hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true, maxBufferLength: 12, backBufferLength: 20 })
+            hlsInstance.on(Hls.Events.ERROR, (_event, data) => {
+              if (data.fatal) {
+                setReady(false)
+                setError("La playlist HLS n’a pas pu être lue. Vérifiez le flux et les codecs côté Jellyfin.")
+              }
+            })
+            hlsInstance.loadSource(streamUrl)
+            hlsInstance.attachMedia(video)
+          } else {
+            setError("Ce navigateur ne prend pas en charge la lecture HLS.")
+          }
+        } else {
+          video.src = streamUrl
+          video.load()
+        }
       } catch (streamError) {
         setError(streamError instanceof Error ? streamError.message : "Impossible d’ouvrir ce flux Jellyfin.")
       }
     })()
-    const interval = window.setInterval(() => { if (!previewMode && !video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
+    const interval = window.setInterval(() => { if (!previewActiveRef.current && !video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
     return () => { cancelled = true; hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeAttribute("src"); video.load() }
-  }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce, isLive, audioIndex, subtitleIndex, quality, previewMode, previewDurationSeconds, onClose, portalReady, networkDecision])
+  }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce, isLive, audioIndex, subtitleIndex, quality, portalReady, networkDecision])
 
   const hoverThumbnailIndex = trickplayInfo && hoverSeekTime != null
     ? Math.min(trickplayInfo.ThumbnailCount - 1, Math.floor((hoverSeekTime * 1000) / trickplayInfo.Interval))
@@ -371,6 +419,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     {showPages ? <nav aria-label="Navigation principale" className="absolute right-5 top-20 z-40 grid w-56 gap-1 rounded-2xl border border-white/15 bg-[#111]/95 p-2 shadow-2xl backdrop-blur-xl">{[{ href: "/", label: "Accueil", icon: <Home className="size-4" /> }, { href: "/tv", label: "Hub TV", icon: <Tv className="size-4" /> }, { href: "/guide-tv", label: "Guide TV", icon: <Tv className="size-4" /> }, { href: "/search", label: "Recherche", icon: <Search className="size-4" /> }, { href: "/favorites", label: "Favoris", icon: <Heart className="size-4" /> }, { href: "/settings", label: "Paramètres", icon: <Settings2 className="size-4" /> }, { href: "/genres", label: "Genres", icon: <Play className="size-4" /> }, { href: "/cast", label: "Distribution", icon: <Play className="size-4" /> }, { href: "/verification", label: "Vérification", icon: <Settings2 className="size-4" /> }, { href: "/securite", label: "Sécurité", icon: <Settings2 className="size-4" /> }, { href: "/releases", label: "Nouveautés", icon: <Play className="size-4" /> }, { href: "/ip", label: "Mon IP", icon: <Settings2 className="size-4" /> }, { href: "/admin/ip", label: "Administration", icon: <Settings2 className="size-4" /> }].map((page) => <Link key={page.href} href={page.href} onClick={(event) => { event.preventDefault(); requestExit(page.href) }} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/75 transition hover:bg-white/10 hover:text-white">{page.icon}{page.label}</Link>)}</nav> : null}
     <div className="relative flex min-h-0 flex-1 items-center justify-center" onDoubleClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }}>
       <video ref={videoRef} playsInline className={`h-full w-full object-contain transition-opacity duration-500 ${ready ? "opacity-100" : "opacity-0"}`} onClick={togglePlay} />
+      {previewLimitReached ? <div role="status" className="absolute left-1/2 top-1/2 z-30 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-3 rounded-2xl border border-white/15 bg-black/75 p-5 text-center shadow-2xl backdrop-blur-xl"><p className="text-sm text-white/75">L’aperçu est terminé. Le flux est toujours chargé.</p><button type="button" onClick={continueAfterPreview} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-5 text-sm font-semibold text-black transition hover:scale-[1.02]"><Play className="size-4 fill-current" />Continuer sans recharger</button></div> : null}
       {showLogs ? <aside className="absolute right-5 top-20 z-40 w-[min(420px,calc(100%-2.5rem))] rounded-2xl border border-white/15 bg-black/80 p-4 font-mono text-[11px] text-white/75 shadow-2xl backdrop-blur-xl"><div className="mb-3 flex items-center justify-between font-sans text-sm text-white"><span>Diagnostic de lecture</span><button type="button" onClick={() => setShowLogs(false)} aria-label="Fermer les logs">Fermer</button></div><div className="max-h-44 overflow-auto">{logs.length ? logs.map((entry, index) => <p key={`${entry}-${index}`} className="border-b border-white/5 py-1">{entry}</p>) : <p>Aucun événement.</p>}</div></aside> : null}
       {securityNotice && !playing ? <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-2xl border border-amber-200/20 bg-black/70 px-5 py-3 text-center text-sm text-amber-100 backdrop-blur-xl">Lecture en pause. Redirection dans <strong>{Math.max(0, idleLimit - idleSeconds)} s</strong> si aucun film n&apos;est lancé.</div> : null}
       {!ready ? <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-black">{backdropUrl ? <img src={backdropUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-35 blur-sm" /> : null}<div className="absolute inset-0 bg-black/50" /> <div className="relative text-center">{error ? <><p className="max-w-sm text-sm text-red-100">{error}</p><button type="button" onClick={() => { setRetrying(true); setRetryNonce((value) => value + 1) }} className="mt-5 rounded-md bg-[#e50914] px-5 py-2 text-sm font-semibold transition hover:bg-[#f6121d] disabled:opacity-60" disabled={retrying}>{retrying ? "Nouvel essai…" : "Réessayer"}</button><p className="mt-3 max-w-sm text-xs text-white/45">Jellyfin transcode automatiquement les formats AVI, MKV et MP4 compatibles serveur.</p></> : <><div className="mx-auto size-12 animate-spin rounded-full border-4 border-white/20 border-t-[#e50914]" /><p className="mt-5 font-medium">Préparation de la lecture</p><p className="mt-1 text-xs uppercase tracking-[.25em] text-white/45">{title}</p></>}</div></div> : null}
