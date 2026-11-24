@@ -1,8 +1,8 @@
 "use client"
 
 import useSWR from "swr"
-import { useState } from "react"
-import { Heart, Loader2, Play, Share2, Star, User } from "lucide-react"
+import { useEffect, useState } from "react"
+import { ArrowDown, Clock3, Heart, Loader2, Play, Share2, Star, User } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { VideoPlayer } from "@/components/video-player"
 import { Button } from "@/components/ui/button"
@@ -34,6 +34,7 @@ type PlayTarget = {
   language?: string
   previewMode?: boolean
   previewDurationSeconds?: number
+  durationTicks?: number
 }
 
 function DetailContent({
@@ -45,7 +46,22 @@ function DetailContent({
 }) {
   const { preferences, toggleFavorite } = useJellyfin()
   const [playing, setPlaying] = useState<PlayTarget | null>(null)
+  const [cachedPlayback, setCachedPlayback] = useState<PlayTarget | null>(null)
+  const [launching, setLaunching] = useState(false)
   const [shared, setShared] = useState(false)
+
+  useEffect(() => {
+    if (playing) setCachedPlayback(playing)
+  }, [playing])
+
+  function launchPlayback(target: PlayTarget) {
+    setLaunching(true)
+    window.setTimeout(() => {
+      setCachedPlayback(target)
+      setPlaying(target)
+      setLaunching(false)
+    }, 260)
+  }
 
   const { data, error, isLoading } = useSWR(
     ["item", session.userId, itemId],
@@ -92,7 +108,13 @@ function DetailContent({
     ? resumedEpisode ?? localTrailers?.[0] ?? previewEpisodes?.[0]
     : localTrailers?.[0] ?? item
   const isLocalTrailer = Boolean(localTrailers?.[0] && !resumedEpisode)
-  const resumeTicks = item.UserData?.PlaybackPositionTicks ?? 0
+  const resumeTicks = isSeries
+    ? resumedEpisode?.UserData?.PlaybackPositionTicks ?? 0
+    : item.UserData?.PlaybackPositionTicks ?? 0
+  const primaryEpisode = isSeries
+    ? resumedEpisode ?? previewEpisodes?.find((episode) => !episode.UserData?.Played) ?? previewEpisodes?.[0]
+    : undefined
+  const resumeDurationTicks = isSeries ? primaryEpisode?.RunTimeTicks : item.RunTimeTicks
 
   function openPreview() {
     if (!previewItem) return
@@ -102,6 +124,7 @@ function DetailContent({
       subtitle: isLocalTrailer ? "Bande-annonce" : `Aperçu · ${previewItem.Name}`,
       backdrop: backdropImage(session.serverUrl, previewItem, 1600) ?? backdrop,
       positionTicks: resumedEpisode?.Id === previewItem.Id ? resumedEpisode.UserData?.PlaybackPositionTicks : 0,
+      durationTicks: previewItem.RunTimeTicks,
       language: item.OriginalLanguage ?? item.Language,
       previewMode: true,
       previewDurationSeconds: isLocalTrailer ? undefined : 30,
@@ -113,176 +136,124 @@ function DetailContent({
   const directors = (item.People ?? []).filter((p) => p.Type === "Director")
   const writers = (item.People ?? []).filter((p) => p.Type === "Writer")
 
+  const resumePercent = resumeDurationTicks && resumeTicks > 0
+    ? Math.min(100, Math.round((resumeTicks / resumeDurationTicks) * 100))
+    : 0
+  const logo = item.ImageTags?.Logo
+    ? `${session.serverUrl}/Items/${encodeURIComponent(item.Id)}/Images/Logo?tag=${encodeURIComponent(item.ImageTags.Logo)}&maxWidth=720`
+    : null
+
   return (
-    <div className="min-h-screen bg-[#090a0d] pb-24 text-white netflix-fade-up">
-      <div className="relative h-[42dvh] min-h-64 w-full overflow-hidden sm:h-[58dvh] sm:min-h-80">
+    <div className="min-h-screen overflow-hidden bg-[#08090c] pb-20 text-white netflix-fade-up">
+      <section className="relative isolate min-h-[690px] overflow-hidden sm:min-h-[760px]">
         {backdrop ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={backdrop || "/placeholder.svg"}
-            alt=""
-            crossOrigin="anonymous"
-            className="absolute inset-0 h-full w-full object-cover netflix-scale-in"
-          />
-        ) : (
-          <div className="jf-gradient absolute inset-0 opacity-40" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent" />
-      </div>
+          <img src={backdrop} alt="" crossOrigin="anonymous" fetchPriority="high" className={`absolute inset-0 h-full w-full object-cover object-center transition-transform duration-700 ${launching ? "scale-110" : "scale-100"}`} />
+        ) : <div className="jf-gradient absolute inset-0 opacity-40" />}
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(8,9,12,.96)_0%,rgba(8,9,12,.74)_40%,rgba(8,9,12,.2)_100%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(0deg,#08090c_1%,rgba(8,9,12,.82)_21%,transparent_67%)]" />
 
-      <div className="relative z-10 mx-auto -mt-16 max-w-7xl px-4 pb-20 sm:-mt-28 sm:px-6 sm:pb-0">
-        <div className="grid gap-5 sm:grid-cols-[13rem_minmax(0,1fr)] sm:items-end md:grid-cols-[14rem_minmax(0,1fr)]">
-          {poster ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={poster || "/placeholder.svg"}
-              alt={item.Name}
-              crossOrigin="anonymous"
-              className="mx-auto aspect-[2/3] w-32 rounded-xl border border-white/10 object-cover shadow-2xl sm:mx-0 sm:w-44 md:w-52"
-            />
-          ) : null}
+        <header className="relative z-10 mx-auto flex max-w-[1500px] items-center justify-between px-5 py-5 sm:px-10">
+          <a href="/" className="text-xs font-bold uppercase tracking-[.28em] text-white/75 transition hover:text-white">JFLX <span className="ml-2 text-white/35">/ HUB</span></a>
+          <nav aria-label="Navigation média" className="hidden items-center gap-6 text-sm text-white/65 sm:flex">
+            <a href="#fiche" className="transition hover:text-white">Aperçu</a>
+            {isSeries ? <a href="#episodes" className="transition hover:text-white">Épisodes</a> : null}
+            <a href="#distribution" className="transition hover:text-white">Distribution</a>
+          </nav>
+          <a href="/" aria-label="Retour à l’accueil" className="rounded-full border border-white/20 bg-black/20 px-4 py-2 text-sm text-white/80 backdrop-blur transition hover:bg-white/10">Catalogue</a>
+        </header>
 
-          <div className="flex flex-col gap-3">
-            <h1 className="text-balance text-3xl font-bold tracking-tight sm:text-4xl">
-              {item.Name}
-            </h1>
-            {item.Taglines?.length ? (
-              <p className="text-pretty text-sm italic text-muted-foreground">
-                {item.Taglines[0]}
-              </p>
-            ) : null}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              {item.ProductionYear ? <span>{item.ProductionYear}</span> : null}
-              {item.RunTimeTicks ? (
-                <span>{ticksToTime(item.RunTimeTicks)}</span>
-              ) : null}
-              {item.OfficialRating ? (
-                <span className="rounded border border-border px-1.5 py-0.5 text-xs">
-                  {item.OfficialRating}
-                </span>
-              ) : null}
-              {item.CommunityRating ? (
-                <span className="flex items-center gap-1">
-                  <Star className="size-3.5 fill-primary text-primary" />
-                  {item.CommunityRating.toFixed(1)}
-                </span>
-              ) : null}
-            </div>
-
-              {item.Genres?.length ? (
-                <p className="text-sm text-muted-foreground">
-                  {item.Genres.join(" · ")}
-                </p>
-              ) : null}
-              {item.OriginalLanguage || item.Language ? (
-                <p className="text-sm text-muted-foreground">Langue originale : <span className="font-medium text-foreground">{item.OriginalLanguage ?? item.Language}</span></p>
-              ) : null}
-
-
-            {!isSeries ? (
-              <div className="mt-1 flex flex-wrap gap-2">
-                <Button
-                  size="lg"
-                  onClick={() =>
-                    setPlaying({
-                      id: item.Id,
-                      title: item.Name,
-                      backdrop,
-                      positionTicks: resumeTicks,
-                      language: item.OriginalLanguage ?? item.Language,
-                    })
-                  }
-                >
-                  <Play className="size-4 fill-current" />
-                  {resumeTicks > 0 ? "Reprendre" : "Lire"}
-                </Button>
-                {previewItem ? <Button size="lg" variant="outline" onClick={openPreview}><Play className="size-4" />{isLocalTrailer ? "Bande-annonce" : "Aperçu"}</Button> : null}
-                <Button
-                  size="lg"
-                  variant="outline"
-                  onClick={async () => {
-                    const shareData = { title: item.Name, text: `Regarder ${item.Name} sur JFLX`, url: window.location.href }
-                    if (navigator.share) await navigator.share(shareData).catch(() => undefined)
-                    else await navigator.clipboard.writeText(window.location.href)
-                    setShared(true)
-                    window.setTimeout(() => setShared(false), 1800)
-                  }}
-                >
-                  <Share2 className="size-4" />
-                  {shared ? "Lien copié" : "Partager"}
-                </Button>
-                <Button
-                  size="lg"
-                  variant="secondary"
-                  onClick={() => toggleFavorite(item.Id)}
-                  aria-pressed={preferences.favorites.includes(item.Id)}
-                >
-                  <Heart className={`size-4 ${preferences.favorites.includes(item.Id) ? "fill-[#e50914] text-[#e50914]" : ""}`} />
-                  {preferences.favorites.includes(item.Id) ? "Dans mes favoris" : "Ajouter aux favoris"}
-                </Button>
+        <div id="fiche" className="relative z-10 mx-auto flex min-h-[590px] max-w-[1500px] items-end px-5 pb-12 pt-16 sm:min-h-[650px] sm:px-10 sm:pb-16">
+          <div className="grid w-full items-end gap-8 sm:grid-cols-[minmax(0,1fr)_220px] lg:grid-cols-[minmax(0,1fr)_260px]">
+            <div className="max-w-3xl">
+              <p className="mb-4 text-[11px] font-semibold uppercase tracking-[.3em] text-[#f2bb55]">{isSeries ? "Série originale" : "Film sélectionné"} <span className="mx-2 text-white/30">•</span> Votre bibliothèque Jellyfin</p>
+              {logo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={logo} alt={item.Name} crossOrigin="anonymous" className="mb-5 max-h-24 max-w-[min(90vw,520px)] object-contain object-left drop-shadow-2xl sm:max-h-32" />
+              ) : <h1 className="mb-4 text-balance text-4xl font-black leading-[.98] tracking-[-.04em] sm:text-6xl lg:text-7xl">{item.Name}</h1>}
+              {item.Taglines?.[0] ? <p className="mb-4 max-w-xl text-lg font-medium italic text-white/80 sm:text-xl">{item.Taglines[0]}</p> : null}
+              <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-white/75 sm:gap-3 sm:text-sm">
+                {item.ProductionYear ? <span>{item.ProductionYear}</span> : null}
+                {item.RunTimeTicks ? <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{ticksToTime(item.RunTimeTicks)}</span> : null}
+                {item.OfficialRating ? <span className="rounded border border-white/35 px-1.5 py-0.5 text-[11px]">{item.OfficialRating}</span> : null}
+                {item.CommunityRating ? <span className="flex items-center gap-1 text-[#f2bb55]"><Star className="size-3.5 fill-current" />{item.CommunityRating.toFixed(1)}</span> : null}
+                {item.Genres?.slice(0, 3).map((genre) => <span key={genre} className="rounded-full border border-white/15 bg-black/20 px-2.5 py-1 text-[11px] text-white/75">{genre}</span>)}
               </div>
-            ) : null}
-            {isSeries && previewItem && !previewEpisodesLoading ? <Button size="lg" variant="outline" onClick={openPreview}><Play className="size-4" />{isLocalTrailer ? "Bande-annonce" : resumedEpisode ? "Reprendre l’épisode" : "Aperçu d’un épisode"}</Button> : null}
+              {item.Overview ? <p className="mt-5 line-clamp-4 max-w-2xl text-pretty text-sm leading-7 text-white/70 sm:text-base">{item.Overview}</p> : null}
+              <div className="mt-7 flex flex-wrap gap-3">
+                <Button size="lg" onClick={() => {
+                  const target = primaryEpisode ?? item
+                  launchPlayback({
+                    id: target.Id,
+                    title: item.Name,
+                    subtitle: isSeries && primaryEpisode ? `S${primaryEpisode.ParentIndexNumber ?? 1} E${primaryEpisode.IndexNumber ?? "—"} · ${primaryEpisode.Name}` : undefined,
+                    backdrop: isSeries ? backdropImage(session.serverUrl, target, 1600) ?? backdrop : backdrop,
+                    positionTicks: isSeries ? primaryEpisode?.UserData?.PlaybackPositionTicks : resumeTicks,
+                    language: item.OriginalLanguage ?? item.Language,
+                    durationTicks: isSeries ? primaryEpisode?.RunTimeTicks : item.RunTimeTicks,
+                  })
+                }} disabled={launching || (isSeries && !primaryEpisode)} className="min-w-40 rounded-full bg-white px-7 font-bold text-black shadow-xl shadow-black/20 transition hover:scale-[1.03] hover:bg-white/90 active:scale-95">
+                  <Play className="size-4 fill-current" />{launching ? "Ouverture…" : resumeTicks > 0 ? (isSeries ? "Reprendre l’épisode" : "Reprendre") : isSeries ? "Lancer la série" : "Lecture"}
+                </Button>
+                {previewItem && (isLocalTrailer || isSeries) ? <Button size="lg" variant="outline" onClick={openPreview} className="rounded-full border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white/20"><Play className="size-4" />{isLocalTrailer ? "Bande-annonce" : resumedEpisode ? "Aperçu de l’épisode" : "Aperçu"}</Button> : null}
+                <Button size="icon" variant="outline" aria-label="Partager" onClick={async () => {
+                  const shareData = { title: item.Name, text: `Regarder ${item.Name} sur JFLX`, url: window.location.href }
+                  if (navigator.share) await navigator.share(shareData).catch(() => undefined)
+                  else await navigator.clipboard.writeText(window.location.href)
+                  setShared(true)
+                  window.setTimeout(() => setShared(false), 1800)
+                }} className="size-11 rounded-full border-white/25 bg-black/20 text-white hover:bg-white/15"><Share2 className="size-4" /></Button>
+                <Button size="lg" variant="outline" onClick={() => toggleFavorite(item.Id)} aria-pressed={preferences.favorites.includes(item.Id)} className="rounded-full border-white/25 bg-black/20 text-white hover:bg-white/15">
+                  <Heart className={`size-4 ${preferences.favorites.includes(item.Id) ? "fill-[#e50914] text-[#e50914]" : ""}`} />{preferences.favorites.includes(item.Id) ? "Dans ma liste" : "Ma liste"}
+                </Button>
+                {shared ? <span role="status" className="self-center text-xs text-white/70">Lien copié</span> : null}
+              </div>
+              {resumePercent > 0 && resumePercent < 100 ? <div className="mt-5 max-w-md"><div className="mb-1.5 flex justify-between text-[11px] text-white/55"><span>Reprise de lecture</span><span>{resumePercent}%</span></div><div className="h-1 overflow-hidden rounded-full bg-white/20"><div className="h-full rounded-full bg-[#f2bb55]" style={{ width: `${resumePercent}%` }} /></div></div> : null}
+              <a href={isSeries ? "#episodes" : "#distribution"} className="mt-6 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-white/50 transition hover:text-white/80"><ArrowDown className="size-3.5" />Explorer le contenu</a>
+            </div>
+            {poster ? <div className={`hidden justify-self-end transition duration-500 sm:block ${launching ? "scale-110 opacity-70" : "scale-100 opacity-100"}`}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={poster} alt={`Affiche de ${item.Name}`} crossOrigin="anonymous" className="aspect-[2/3] w-52 rounded-xl border border-white/15 object-cover shadow-[0_28px_90px_rgba(0,0,0,.65)] lg:w-60" />
+            </div> : null}
           </div>
         </div>
+      </section>
 
-        {item.Overview ? (
-          <div className="mt-6 max-w-3xl">
-            <h2 className="mb-2 text-lg font-semibold">Synopsis</h2>
-            <p className="text-pretty leading-relaxed text-foreground/90">
-              {item.Overview}
-            </p>
+      <main className="relative z-10 mx-auto max-w-[1500px] px-5 sm:px-10">
+        <div className="grid gap-10 border-b border-white/10 py-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <section aria-labelledby="synopsis-title">
+            <div className="mb-4 flex items-center gap-3"><span className="h-6 w-1 rounded-full bg-[#f2bb55]" /><h2 id="synopsis-title" className="text-xl font-bold tracking-tight">À propos</h2></div>
+            {item.Overview ? <p className="max-w-4xl text-pretty text-sm leading-7 text-white/65 sm:text-base">{item.Overview}</p> : <p className="text-sm text-white/50">Aucun synopsis n’est disponible pour ce titre.</p>}
+          </section>
+          <dl className="grid content-start grid-cols-2 gap-x-5 gap-y-4 text-sm">
+            {directors.length ? <div><dt className="text-xs text-white/40">Réalisation</dt><dd className="mt-1 text-white/80">{directors.map((director) => director.Name).join(", ")}</dd></div> : null}
+            {writers.length ? <div><dt className="text-xs text-white/40">Scénario</dt><dd className="mt-1 text-white/80">{writers.map((writer) => writer.Name).join(", ")}</dd></div> : null}
+            {item.Studios?.length ? <div><dt className="text-xs text-white/40">Studio</dt><dd className="mt-1 text-white/80">{item.Studios.map((studio) => studio.Name).join(", ")}</dd></div> : null}
+            {item.OriginalLanguage || item.Language ? <div><dt className="text-xs text-white/40">Langue originale</dt><dd className="mt-1 text-white/80">{item.OriginalLanguage ?? item.Language}</dd></div> : null}
+          </dl>
+        </div>
+
+        {cast.length ? <CastSection session={session} cast={cast} /> : null}
+        {isSeries ? (
+          <div id="episodes" className="scroll-mt-8 pt-10">
+            <SeasonsSection session={session} seriesId={item.Id} seasons={seasons} onPlay={launchPlayback} />
           </div>
         ) : null}
+      </main>
 
-        {directors.length || writers.length || item.Studios?.length ? (
-          <dl className="mt-6 grid max-w-3xl grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
-            {directors.length ? (
-              <div className="flex gap-2">
-                <dt className="shrink-0 text-muted-foreground">Réalisation</dt>
-                <dd>{directors.map((d) => d.Name).join(", ")}</dd>
-              </div>
-            ) : null}
-            {writers.length ? (
-              <div className="flex gap-2">
-                <dt className="shrink-0 text-muted-foreground">Scénario</dt>
-                <dd>{writers.map((w) => w.Name).join(", ")}</dd>
-              </div>
-            ) : null}
-            {item.Studios?.length ? (
-              <div className="flex gap-2">
-                <dt className="shrink-0 text-muted-foreground">Studio</dt>
-                <dd>{item.Studios.map((s) => s.Name).join(", ")}</dd>
-              </div>
-            ) : null}
-          </dl>
-        ) : null}
-
-        {cast.length ? (
-          <CastSection session={session} cast={cast} />
-        ) : null}
-
-        {isSeries ? (
-          <SeasonsSection
-            session={session}
-            seriesId={item.Id}
-            seasons={seasons}
-            onPlay={setPlaying}
-          />
-        ) : null}
-      </div>
-
-      {playing ? (
+      {cachedPlayback ? (
         <VideoPlayer
           session={session}
-          itemId={playing.id}
-          title={playing.title}
-          subtitle={playing.subtitle}
-          backdropUrl={playing.backdrop ?? backdrop}
-          startPositionTicks={playing.positionTicks}
-          language={playing.language}
-          previewMode={playing.previewMode}
-          previewDurationSeconds={playing.previewDurationSeconds}
+          itemId={cachedPlayback.id}
+          title={cachedPlayback.title}
+          subtitle={cachedPlayback.subtitle}
+          backdropUrl={cachedPlayback.backdrop ?? backdrop}
+          startPositionTicks={cachedPlayback.positionTicks}
+          durationTicks={cachedPlayback.durationTicks}
+          language={cachedPlayback.language}
+          previewMode={cachedPlayback.previewMode}
+          previewDurationSeconds={cachedPlayback.previewDurationSeconds}
+          isOpen={Boolean(playing)}
           onClose={() => setPlaying(null)}
         />
       ) : null}
@@ -299,8 +270,8 @@ function CastSection({
 }) {
   if (!cast?.length) return null
   return (
-    <div className="mt-10">
-      <h2 className="mb-4 text-lg font-semibold">Distribution</h2>
+    <section id="distribution" aria-labelledby="distribution-title" className="mt-10 scroll-mt-8">
+      <h2 id="distribution-title" className="mb-4 text-lg font-semibold">Distribution</h2>
       <ul className="no-scrollbar flex gap-4 overflow-x-auto pb-2">
         {cast.slice(0, 30).map((person) => {
           const img = personImage(session.serverUrl, person, 200)
@@ -337,7 +308,7 @@ function CastSection({
           )
         })}
       </ul>
-    </div>
+    </section>
   )
 }
 
@@ -411,6 +382,7 @@ function SeasonsSection({
                           : ep.Name,
                       backdrop: backdropImage(session.serverUrl, ep, 1600),
                       positionTicks: ep.UserData?.PlaybackPositionTicks,
+                      durationTicks: ep.RunTimeTicks,
                     })
                   }
                   className="flex w-full items-start gap-3 bg-card p-3 text-left transition-colors hover:bg-secondary sm:items-center sm:gap-4"
