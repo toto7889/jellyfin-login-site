@@ -208,6 +208,58 @@ header nav[aria-label="Navigation principale"] > a:nth-child(n+7) { display: non
 .music-spectrum { background: repeating-linear-gradient(90deg, transparent 0 10px, rgb(181 132 230 / .28) 10px 12px, transparent 12px 21px); mask-image: linear-gradient(to top, black, transparent); transform: scaleY(.55); transform-origin: bottom; animation: spectrum-drift 6s linear infinite alternate; }
 @keyframes spectrum-drift { to { transform: scaleY(1); opacity: .55; } }
 
+@keyframes login-reveal { from { opacity: 0; transform: translateY(18px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes poster-rise { from { opacity: 0; transform: translateY(18px) rotate(var(--poster-tilt)); } to { opacity: 1; transform: translateY(0) rotate(var(--poster-tilt)); } }
+.login-stage__ambient { position: absolute; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(ellipse at 16% 42%, rgb(0 164 220 / .16), transparent 42%), radial-gradient(ellipse at 80% 18%, rgb(229 9 20 / .1), transparent 42%); }
+.login-editorial { animation: login-reveal .8s cubic-bezier(.22,1,.36,1) both; }
+.login-form-column { animation: login-reveal .72s .08s cubic-bezier(.22,1,.36,1) both; }
+.login-brand { color: white; text-decoration: none; }
+.login-brand__mark { display: grid; width: 2.75rem; height: 2.75rem; place-items: center; border: 1px solid rgb(255 255 255 / .16); border-radius: .9rem; background: linear-gradient(145deg, #08a9df, #0876b5); box-shadow: 0 8px 28px rgb(0 164 220 / .25); }
+.login-eyebrow { display: flex; align-items: center; gap: .5rem; color: #55c8f1; font-size: .66rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+.login-cinema-strip { display: flex; align-items: end; gap: .85rem; }
+.login-cinema-strip__poster { --poster-tilt: 0deg; position: relative; display: flex; width: 9rem; height: 12rem; flex: 0 0 auto; flex-direction: column; justify-content: end; gap: .55rem; overflow: hidden; border: 1px solid rgb(255 255 255 / .18); border-radius: .85rem; padding: 1rem; box-shadow: 0 20px 50px rgb(0 0 0 / .38); animation: poster-rise .8s cubic-bezier(.22,1,.36,1) both; transition: transform .3s ease, border-color .3s ease; }
+.login-cinema-strip__poster::before { position: absolute; inset: 0; content: ""; background: linear-gradient(180deg, transparent 30%, rgb(0 0 0 / .82)); }
+.login-cinema-strip__poster > * { position: relative; }
+.login-cinema-strip__poster strong { font-size: 1rem; letter-spacing: .06em; }
+.login-cinema-strip__poster > span:last-child { color: rgb(255 255 255 / .62); font-size: .65rem; }
+.login-cinema-strip__poster--one { --poster-tilt: -3deg; background: radial-gradient(ellipse at 50% 30%, rgb(57 188 233 / .62), transparent 34%), linear-gradient(145deg, #17364d, #10121d 70%); animation-delay: .1s; }
+.login-cinema-strip__poster--two { --poster-tilt: 1deg; height: 13.5rem; background: radial-gradient(ellipse at 58% 25%, rgb(199 83 73 / .62), transparent 32%), linear-gradient(145deg, #40252e, #11121b 72%); animation-delay: .2s; }
+.login-cinema-strip__poster--three { --poster-tilt: 4deg; background: radial-gradient(ellipse at 38% 26%, rgb(105 100 202 / .6), transparent 35%), linear-gradient(145deg, #252c50, #10121b 72%); animation-delay: .3s; }
+.login-cinema-strip__poster:hover { transform: translateY(-8px) rotate(0); border-color: rgb(255 255 255 / .42); }
+.login-poster-label { position: absolute !important; top: 1rem; color: rgb(255 255 255 / .66); font-size: .52rem !important; font-weight: 700; letter-spacing: .16em; }
+.login-cinema-strip__caption { display: flex; align-items: center; gap: .5rem; margin: 0 0 .5rem .5rem; color: rgb(255 255 255 / .4); font-size: .68rem; }
+.login-panel { padding: 2rem; border-radius: 1.35rem; animation: login-reveal .7s cubic-bezier(.22,1,.36,1) both; }
+.login-panel__header { position: relative; }
+.login-panel__icon { display: grid; width: 2.75rem; height: 2.75rem; place-items: center; border: 1px solid rgb(85 200 241 / .24); border-radius: .85rem; color: #55c8f1; background: rgb(0 164 220 / .1); }
+.login-server-status { display: flex; align-items: center; gap: .8rem; border: 1px solid rgb(255 255 255 / .08); border-radius: .8rem; padding: .75rem .85rem; background: rgb(255 255 255 / .035); }
+.login-server-status__icon { display: grid; width: 2rem; height: 2rem; flex: 0 0 auto; place-items: center; border-radius: .65rem; color: #f4c66a; background: rgb(244 198 106 / .1); }
+.login-server-status__icon.is-online { color: #72d9ac; background: rgb(66 190 135 / .1); }
+.login-server-status__dot { width: .45rem; height: .45rem; flex: 0 0 auto; border-radius: 999px; background: #f4c66a; animation: status-breathe 1.8s ease-in-out infinite; }
+.login-server-status__dot.is-online { background: #72d9ac; animation: none; }
+@keyframes status-breathe { 50% { opacity: .45; box-shadow: 0 0 0 4px rgb(244 198 106 / .08); } }
+.login-account { display: flex; width: 100%; align-items: center; gap: .75rem; margin-top: 1rem; border: 1px solid rgb(255 255 255 / .1); border-radius: .8rem; padding: .65rem .75rem; background: rgb(255 255 255 / .035); transition: border-color .2s ease, background .2s ease, transform .2s ease; }
+.login-account:hover, .login-account.is-selected { transform: translateY(-1px); border-color: rgb(85 200 241 / .42); background: rgb(0 164 220 / .08); }
+.login-account__avatar { display: grid; width: 2.4rem; height: 2.4rem; flex: 0 0 auto; place-items: center; border-radius: .7rem; background: linear-gradient(145deg, #08a9df, #0876b5); font-weight: 700; }
+.login-field { border-color: rgb(255 255 255 / .12) !important; border-radius: .75rem !important; background: rgb(255 255 255 / .045) !important; color: white !important; transition: border-color .2s ease, box-shadow .2s ease, background .2s ease !important; }
+.login-field::placeholder { color: rgb(255 255 255 / .32) !important; }
+.login-field:focus-visible { border-color: rgb(85 200 241 / .72) !important; background: rgb(255 255 255 / .07) !important; box-shadow: 0 0 0 3px rgb(0 164 220 / .14) !important; }
+.login-password-field { position: relative; }
+.login-password-toggle { position: absolute; top: 50%; right: .85rem; display: grid; width: 2rem; height: 2rem; place-items: center; transform: translateY(-50%); border-radius: .55rem; color: rgb(255 255 255 / .48); transition: color .2s ease, background .2s ease; }
+.login-password-toggle:hover, .login-password-toggle:focus-visible { color: white; background: rgb(255 255 255 / .08); outline: none; }
+.login-password-toggle:focus-visible { box-shadow: 0 0 0 2px #55c8f1; }
+.login-error { display: flex; gap: .55rem; border: 1px solid rgb(255 107 112 / .24); border-radius: .75rem; padding: .7rem .8rem; color: #ffc3c5; background: rgb(229 9 20 / .09); font-size: .78rem; line-height: 1.4rem; }
+.login-submit { justify-content: center; gap: .55rem; border: 0; border-radius: .8rem; color: white; background: linear-gradient(105deg, #087db4, #00a4dc); box-shadow: 0 8px 26px rgb(0 164 220 / .2); transition: transform .2s ease, box-shadow .2s ease, filter .2s ease; }
+.login-submit:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.08); box-shadow: 0 13px 34px rgb(0 164 220 / .3); }
+.login-submit:active:not(:disabled) { transform: translateY(0) scale(.985); }
+.login-submit:focus-visible { outline: 2px solid #8be0ff; outline-offset: 3px; }
+.login-panel__footer { display: flex; flex-direction: column; gap: .7rem; margin-top: 1.35rem; padding-top: 1rem; border-top: 1px solid rgb(255 255 255 / .08); color: rgb(255 255 255 / .39); text-align: center; font-size: .68rem; }
+.login-panel__footer span { display: flex; align-items: center; justify-content: center; gap: .4rem; color: rgb(255 255 255 / .5); }
+:root[data-performance="low"] .login-editorial,
+:root[data-performance="low"] .login-form-column,
+:root[data-performance="low"] .login-cinema-strip__poster { animation: none !important; }
+@media (max-width: 639px) { .login-panel { padding: 1.5rem; border-radius: 1.15rem; } }
+@media (prefers-reduced-motion: reduce) { .login-editorial, .login-form-column, .login-cinema-strip__poster, .login-server-status__dot, .login-panel { animation: none !important; transition: none !important; } }
+
 /* Hide scrollbars on horizontal media rows while keeping scroll */
 .no-scrollbar {
   -ms-overflow-style: none;
