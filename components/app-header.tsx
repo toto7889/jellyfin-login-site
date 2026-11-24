@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
-import { CalendarDays, Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch, Cast, Clapperboard, Film } from "lucide-react"
+import { CalendarDays, Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch, Cast, Clapperboard, Film, Music2, MonitorPlay } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -44,12 +44,13 @@ function AppHeaderContent() {
             <span className="text-[26px] font-black tracking-[-.08em] text-[#e50914] transition-transform group-hover:scale-110">JFLX</span>
             <span className="hidden text-[10px] font-semibold tracking-[.28em] text-white/45 sm:block">JELLYFIN</span>
           </Link>
-          <nav className="hidden items-center gap-1 xl:flex" aria-label="Navigation principale">
+          <nav className="hidden items-center gap-1 lg:flex" aria-label="Navigation principale">
             <Link href="/" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Home className="mr-1.5 inline size-4" />Accueil</Link>
             <Link href="/tv" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/tv" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Tv className="mr-1.5 inline size-4" />Hub TV</Link>
             <Link href="/films" aria-current={pathname.startsWith("/films") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/films") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Film className="mr-1.5 inline size-4" />Hub Films</Link>
             <Link href="/series" aria-current={pathname.startsWith("/series") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/series") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Clapperboard className="mr-1.5 inline size-4" />Hub Séries</Link>
             <Link href="/guide-tv" aria-current={pathname.startsWith("/guide-tv") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/guide-tv") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><CalendarDays className="mr-1.5 inline size-4" />Guide TV</Link>
+            <Link href="/music" aria-current={pathname.startsWith("/music") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/music") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Music2 className="mr-1.5 inline size-4" />Musique</Link>
             <Link href="/genres" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/genres") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Clapperboard className="mr-1.5 inline size-4" />Genres</Link>
             <Link href="/cast" aria-current={pathname.startsWith("/cast") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/cast") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Cast className="mr-1.5 inline size-4" />Caster</Link>
             <Link href="/favorites" className="rounded-md px-3 py-2 text-sm text-white/60 transition hover:text-white"><Heart className="mr-1.5 inline size-4" />Favoris</Link>
@@ -62,32 +63,43 @@ function AppHeaderContent() {
             </form>
             <Button variant="ghost" size="icon" className="text-white/70 hover:bg-white/10 hover:text-white md:hidden" onClick={() => setSearchOpen((v) => !v)} aria-label="Ouvrir la recherche"><Search className="size-5" /></Button>
             <div className="relative">
-              <button type="button" onClick={() => setMenuOpen((v) => !v)} className="flex items-center gap-2 rounded-md p-1.5 text-white/80 hover:bg-white/10" aria-expanded={menuOpen}>
+              <button type="button" onClick={() => setMenuOpen((v) => !v)} className="flex items-center gap-2 rounded-md p-1.5 text-white/80 hover:bg-white/10" aria-label="Ouvrir le menu du compte" aria-expanded={menuOpen} aria-haspopup="menu">
                 <span className="flex size-8 items-center justify-center rounded bg-[#e50914] text-xs font-bold">{session?.userName?.slice(0, 1).toUpperCase()}</span><ChevronDown className="size-3.5" />
               </button>
-              {menuOpen ? <div className="absolute right-0 top-12 w-64 rounded-xl border border-white/10 bg-[#191919] p-2 shadow-2xl animate-in fade-in slide-in-from-top-2">
-                <p className="px-3 py-2 text-sm font-semibold text-white">{session?.userName}</p>
-                <div className="my-1 border-t border-white/10" />
-                <Link href="/favorites" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Heart className="size-4" /> Mes favoris</Link>
-                <Link href="/settings" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Settings className="size-4" /> Paramètres du lecteur</Link>
-                <div className="px-3 py-3"><p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/45"><Settings className="size-3" /> Interface</p><button type="button" onClick={() => updatePreferences({ compact: !preferences.compact })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10">Mode compact {preferences.compact ? <Check className="size-4 text-[#e50914]" /> : null}</button><button type="button" onClick={() => updatePreferences({ accent: preferences.accent === "red" ? "blue" : "red" })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10">Accent {preferences.accent === "red" ? "Rouge" : "Bleu"}<span className={`size-3 rounded-full ${preferences.accent === "red" ? "bg-[#e50914]" : "bg-[#00a4dc]"}`} /></button></div>
-                <button type="button" onClick={() => { setMenuOpen(false); setConfirmLogout(true) }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-300 hover:bg-red-500/10"><LogOut className="size-4" /> Se déconnecter</button>
-              </div> : null}
+              {menuOpen && (
+                <div role="menu" className="absolute right-0 top-12 max-h-[calc(100dvh-5rem)] w-64 overflow-y-auto rounded-xl border border-white/10 bg-[#191919] p-2 shadow-2xl animate-in fade-in slide-in-from-top-2">
+                  <p className="px-3 py-2 text-sm font-semibold text-white">{session?.userName}</p>
+                  <div className="my-1 border-t border-white/10" />
+                  <Link role="menuitem" href="/favorites" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Heart className="size-4" /> Mes favoris</Link>
+                  <Link role="menuitem" href="/settings" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Settings className="size-4" /> Paramètres du lecteur</Link>
+                  <Link role="menuitem" href="/music" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Music2 className="size-4" /> Hub musique</Link>
+                  <Link role="menuitem" href="/genres" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Clapperboard className="size-4" /> Explorer les genres</Link>
+                  <Link role="menuitem" href="/cast" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Cast className="size-4" /> Distribution</Link>
+                  <Link role="menuitem" href="/securite" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><ShieldCheck className="size-4" /> Sécurité</Link>
+                  <Link role="menuitem" href="/releases" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><GitBranch className="size-4" /> Nouveautés</Link>
+                  <div className="px-3 py-3">
+                    <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/45"><Settings className="size-3" /> Interface</p>
+                    <button type="button" onClick={() => updatePreferences({ tvMode: !preferences.tvMode })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10"><span className="flex items-center gap-2"><MonitorPlay className="size-4" /> Mode TV</span>{preferences.tvMode ? <Check className="size-4 text-[#e50914]" /> : null}</button>
+                    <button type="button" onClick={() => updatePreferences({ compact: !preferences.compact })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10">Mode compact {preferences.compact ? <Check className="size-4 text-[#e50914]" /> : null}</button>
+                    <button type="button" onClick={() => updatePreferences({ accent: preferences.accent === "red" ? "blue" : "red" })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10">Accent {preferences.accent === "red" ? "Rouge" : "Bleu"}<span className={`size-3 rounded-full ${preferences.accent === "red" ? "bg-[#e50914]" : "bg-[#00a4dc]"}`} /></button>
+                  </div>
+                  <button type="button" onClick={() => { setMenuOpen(false); setConfirmLogout(true) }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-300 hover:bg-red-500/10"><LogOut className="size-4" /> Se déconnecter</button>
+                </div>
+              )}
             </div>
           </div>
         </div>
       </header>
-      <nav aria-label="Navigation mobile" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#090909]/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl xl:hidden">
-        <div className="mx-auto grid max-w-3xl grid-cols-10">
+      <nav aria-label="Navigation mobile" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#090909]/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
+        <div className="mx-auto grid max-w-3xl grid-cols-9">
           <MobileNavLink href="/" active={pathname === "/"} label="Accueil" icon={<Home />} />
           <MobileNavLink href="/tv" active={pathname === "/tv"} label="Hub TV" icon={<Tv />} />
           <MobileNavLink href="/films" active={pathname.startsWith("/films")} label="Films" icon={<Film />} />
           <MobileNavLink href="/series" active={pathname.startsWith("/series")} label="Séries" icon={<Clapperboard />} />
           <MobileNavLink href="/guide-tv" active={pathname.startsWith("/guide-tv")} label="Guide TV" icon={<CalendarDays />} />
-          <MobileNavLink href="/cast" active={pathname.startsWith("/cast")} label="Caster" icon={<Cast />} />
           <MobileNavLink href="/favorites" active={pathname.startsWith("/favorites")} label="Favoris" icon={<Heart />} />
+          <MobileNavLink href="/music" active={pathname.startsWith("/music")} label="Musique" icon={<Music2 />} />
           <MobileNavLink href="/search" active={pathname.startsWith("/search")} label="Recherche" icon={<Search />} />
-          <MobileNavLink href="/securite" active={pathname.startsWith("/securite")} label="Sécurité" icon={<ShieldCheck />} />
           <MobileNavLink href="/settings" active={pathname.startsWith("/settings")} label="Réglages" icon={<Settings />} />
         </div>
       </nav>

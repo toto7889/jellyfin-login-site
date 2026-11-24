@@ -44,6 +44,9 @@ export type BaseItem = {
   }
   CollectionType?: string
   MediaType?: string
+  Album?: string
+  AlbumArtist?: string
+  Artists?: string[]
   People?: Person[]
   Studios?: { Name: string; Id?: string }[]
   Taglines?: string[]
@@ -319,7 +322,7 @@ export async function getItems(
 ): Promise<BaseItem[]> {
   const params = new URLSearchParams({
     Recursive: String(options.recursive ?? true),
-    Fields: "ProductionYear,Overview,Genres,CommunityRating,OfficialRating",
+    Fields: "ProductionYear,Overview,Genres,CommunityRating,OfficialRating,Album,AlbumArtist,Artists,RunTimeTicks,PrimaryImageAspectRatio,DateCreated",
     SortBy: options.sortBy ?? "SortName",
     SortOrder: options.sortOrder ?? "Ascending",
     Limit: String(options.limit ?? 60),
@@ -536,6 +539,11 @@ export async function getLiveTvPrograms(
 }
 
 // ---- Playback ----
+
+export function audioStreamUrl(session: JellyfinSession, itemId: string): string {
+  const params = new URLSearchParams({ api_key: session.accessToken, userId: session.userId, DeviceId: session.deviceId, static: "true" })
+  return `${session.serverUrl}/Audio/${encodeURIComponent(itemId)}/stream?${params.toString()}`
+}
 
 // Returns an HLS master playlist URL that hls.js can play in any browser.
 export function streamUrl(session: JellyfinSession, itemId: string): string {
