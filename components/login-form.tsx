@@ -16,6 +16,7 @@ export function LoginForm() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [navigating, setNavigating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastAccount, setLastAccount] = useState<string | null>(null)
   const [captcha, setCaptcha] = useState({ a: 3, b: 4 })
@@ -107,6 +108,7 @@ export function LoginForm() {
     try {
       await login(username.trim(), password)
       window.localStorage.setItem("jf_last_account", username.trim())
+      setNavigating(true)
       router.push("/")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connexion impossible. Réessayez.")
@@ -184,6 +186,7 @@ export function LoginForm() {
         </section>
       </div>
       </main>
+      {navigating ? <div role="status" aria-live="polite" aria-label="Connexion réussie, ouverture de votre médiathèque" className="login-transition"><div className="login-transition__card"><span className="login-transition__mark"><Play className="size-7 fill-current" /></span><p className="text-3xl font-black tracking-[-.08em]">JFLX</p><h2 className="text-lg font-semibold">Bienvenue, {username.trim()}</h2><p className="text-sm text-white/55">Préparation de votre espace multimédia…</p><div className="login-transition__track"><span /></div><div className="flex items-center gap-2 text-xs text-white/40"><Loader2 className="size-3.5 animate-spin" />Connexion sécurisée à votre bibliothèque</div></div></div> : null}
     </>
   )
 }

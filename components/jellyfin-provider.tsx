@@ -9,7 +9,7 @@ const BLOCKED_IPS_KEY = "jf_blocked_ips"
 
 const FALLBACK_IP = "IP non disponible"
 
-type Preferences = { compact: boolean; accent: "red" | "blue"; favorites: string[]; autoplay: boolean; reduceMotion: boolean }
+type Preferences = { compact: boolean; accent: "red" | "blue"; favorites: string[]; autoplay: boolean; reduceMotion: boolean; tvMode: boolean }
 type JellyfinContextValue = {
   session: JellyfinSession | null
   ready: boolean
@@ -27,7 +27,7 @@ type JellyfinContextValue = {
   unblockIp: (ip: string) => void
 }
 
-const defaults: Preferences = { compact: false, accent: "red", favorites: [], autoplay: true, reduceMotion: false }
+const defaults: Preferences = { compact: false, accent: "red", favorites: [], autoplay: true, reduceMotion: false, tvMode: false }
 const JellyfinContext = createContext<JellyfinContextValue | null>(null)
 
 export function JellyfinProvider({ children }: { children: React.ReactNode }) {
@@ -56,7 +56,17 @@ export function JellyfinProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.dataset.density = preferences.compact ? "compact" : "comfortable"
     document.documentElement.dataset.accent = preferences.accent
     document.documentElement.dataset.reduceMotion = preferences.reduceMotion ? "true" : "false"
-  }, [preferences.compact, preferences.accent, preferences.reduceMotion])
+    document.documentElement.dataset.tvMode = preferences.tvMode ? "true" : "false"
+  }, [preferences.compact, preferences.accent, preferences.reduceMotion, preferences.tvMode])
+
+  useEffect(() => {
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection
+    const lowPower = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+    const lowCoreCount = navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 4
+    const limitedNetwork = connection?.saveData || connection?.effectiveType === "2g" || connection?.effectiveType === "slow-2g"
+    const reducedBySystem = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    document.documentElement.dataset.performance = lowPower && lowPower <= 2 || lowCoreCount || limitedNetwork || reducedBySystem ? "low" : "full"
+  }, [])
 
   useEffect(() => {
     if (!ready) return

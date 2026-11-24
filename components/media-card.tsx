@@ -29,6 +29,7 @@ export function MediaCard({ item, session, variant = "poster" }: MediaCardProps)
   const hasStarted = resumeTicks > 0 || progress > 0
   const canPreview = item.Type === "Movie" || item.Type === "Episode" || item.Type === "Series"
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewReady, setPreviewReady] = useState(false)
   const [previewStartSeconds, setPreviewStartSeconds] = useState(0)
   const [playerOpen, setPlayerOpen] = useState(false)
   const hoverTimer = useRef<number | null>(null)
@@ -61,6 +62,7 @@ export function MediaCard({ item, session, variant = "poster" }: MediaCardProps)
         if (!resolvedTarget || resolvedTarget.Type === "Series") return
         setCurrentItem(resolvedTarget)
         const latestTicks = resolvedTarget.UserData?.PlaybackPositionTicks ?? 0
+        setPreviewReady(false)
         setPreviewStartSeconds(latestTicks / 10_000_000)
         const url = new URL(directStreamUrl(session, resolvedTarget.Id, { startTimeTicks: latestTicks }))
         url.searchParams.set("static", "true")
@@ -88,18 +90,19 @@ export function MediaCard({ item, session, variant = "poster" }: MediaCardProps)
     requestId.current += 1
     if (hoverTimer.current) window.clearTimeout(hoverTimer.current)
     hoverTimer.current = null
+    setPreviewReady(false)
     setPreviewUrl(null)
   }
 
   return (
-    <div onMouseEnter={startPreview} onMouseLeave={stopPreview} className="group netflix-hover flex flex-col gap-2 outline-none">
-      <div className={`relative overflow-hidden rounded-lg border border-border bg-secondary transition-all group-hover:border-primary/60 group-focus-within:ring-2 group-focus-within:ring-ring ${isWide ? "aspect-video" : "aspect-[2/3]"}`}>
+    <div onMouseEnter={startPreview} onMouseLeave={stopPreview} onFocusCapture={startPreview} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) stopPreview() }} className="group netflix-hover flex flex-col gap-2 outline-none">
+      <div className={`media-preview-frame relative overflow-hidden rounded-lg border border-border bg-secondary group-hover:border-primary/60 group-focus-within:ring-2 group-focus-within:ring-ring ${isWide ? "media-preview-frame--wide" : previewReady ? "media-preview-frame--active" : ""}`}>
         {img ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={img} alt={item.Name} crossOrigin="anonymous" loading="lazy" className={`h-full w-full object-cover transition-transform duration-300 group-hover:scale-105 ${previewUrl ? "opacity-0" : "opacity-100"}`} />
-        ) : <div className="flex h-full w-full items-center justify-center p-3 text-center text-sm text-muted-foreground">{item.Name}</div>}
-        {previewUrl ? <video ref={previewVideo} src={previewUrl} muted playsInline preload="metadata" aria-label={`Aperçu vidéo de ${item.Name}`} onLoadedMetadata={(event) => { const video = event.currentTarget; if (previewStartSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = Math.min(previewStartSeconds, Math.max(0, video.duration - 1)); void video.play().catch(() => undefined) }} onTimeUpdate={(event) => { if (event.currentTarget.currentTime >= previewStartSeconds + 12) event.currentTarget.pause() }} className="absolute inset-0 size-full object-cover" /> : null}
-        {previewUrl ? <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/20" /> : null}
+          <img src={img} alt={item.Name} crossOrigin="anonymous" loading="lazy" className={`absolute inset-0 size-full object-cover transition-[opacity,transform] duration-500 ease-out group-hover:scale-105 ${previewReady ? "opacity-0" : "opacity-100"}`} />
+        ) : <div className="absolute inset-0 flex items-center justify-center p-3 text-center text-sm text-muted-foreground">{item.Name}</div>}
+        {previewUrl ? <video ref={previewVideo} src={previewUrl} muted playsInline preload="metadata" aria-label={`Aperçu vidéo de ${item.Name}`} onLoadedMetadata={(event) => { const video = event.currentTarget; if (previewStartSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = Math.min(previewStartSeconds, Math.max(0, video.duration - 1)); void video.play().then(() => setPreviewReady(true)).catch(() => undefined) }} onTimeUpdate={(event) => { if (event.currentTarget.currentTime >= previewStartSeconds + 12) event.currentTarget.pause() }} className={`absolute inset-0 size-full object-cover transition-opacity duration-500 ${previewReady ? "opacity-100" : "opacity-0"}`} /> : null}
+        {previewReady ? <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/20" /> : null}
         <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3 text-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           <p className="text-xs font-medium text-white drop-shadow">{canPreview ? hasStarted ? `Vous avez déjà commencé ${item.Type === "Series" ? "cette série" : item.Type === "Episode" ? "cet épisode" : "ce film"}` : `Aperçu ${item.Type === "Series" ? "de la série" : item.Type === "Episode" ? "de l’épisode" : "du film"}` : "Découvrez les saisons et les épisodes"}</p>
           {canPreview ? <button type="button" onClick={() => void openPlayback()} className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black shadow-lg transition hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">

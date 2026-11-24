@@ -104,6 +104,11 @@
 .netflix-scale-in { animation: netflix-scale-in .55s cubic-bezier(.22,1,.36,1) both; }
 .netflix-hover { transition: transform .3s ease, filter .3s ease, box-shadow .3s ease; }
 .netflix-hover:hover { transform: scale(1.045) translateY(-4px); filter: brightness(1.12); z-index: 2; box-shadow: 0 18px 42px rgb(0 0 0 / .38); }
+.media-preview-frame { aspect-ratio: 2 / 3; transition: aspect-ratio .48s cubic-bezier(.22,1,.36,1), border-radius .35s ease, border-color .35s ease; }
+.media-preview-frame--active, .media-preview-frame--wide { aspect-ratio: 16 / 9; }
+.media-preview-frame--active { border-radius: .85rem; }
+
+@media (prefers-reduced-motion: reduce) { .media-preview-frame { transition: none; } }
 
 :root[data-accent="blue"] { --netflix-red: #00a4dc; --netflix-red-hover: #19b9ec; }
 :root[data-density="compact"] .netflix-hover { transform-origin: center; }
@@ -144,6 +149,33 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+header nav[aria-label="Navigation principale"] > a:nth-child(n+7) { display: none; }
+
+@keyframes login-progress { from { transform: translateX(-130%); } to { transform: translateX(260%); } }
+.login-progress-bar { animation: login-progress 1.1s ease-in-out infinite; }
+.login-transition { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: 1rem; background: rgb(4 6 11 / .88); backdrop-filter: blur(18px); animation: page-transition-in .2s ease both; }
+.login-transition__card { display: flex; width: min(100%, 25rem); flex-direction: column; align-items: center; gap: .8rem; border: 1px solid rgb(255 255 255 / .12); border-radius: 1.75rem; background: linear-gradient(145deg, rgb(20 24 34 / .96), rgb(8 11 17 / .98)); padding: 2.5rem 1.5rem; text-align: center; box-shadow: 0 30px 100px rgb(0 0 0 / .45); }
+.login-transition__mark { display: grid; width: 4.25rem; height: 4.25rem; place-items: center; border-radius: 1.3rem; background: #e50914; box-shadow: 0 0 42px rgb(229 9 20 / .32); animation: visit-splash-pulse 1s ease-in-out infinite alternate; }
+.login-transition__track { width: 11rem; height: 3px; margin: .7rem 0; overflow: hidden; border-radius: 99px; background: rgb(255 255 255 / .12); }
+.login-transition__track span { display: block; width: 40%; height: 100%; border-radius: inherit; background: #e50914; animation: login-progress 1s ease-in-out infinite; }
+:root[data-performance="low"] .netflix-fade-up,
+:root[data-performance="low"] .netflix-scale-in,
+:root[data-performance="low"] .netflix-hover,
+:root[data-performance="low"] .shimmer,
+:root[data-performance="low"] .music-spectrum,
+:root[data-performance="low"] .login-progress-bar,
+:root[data-performance="low"] .login-transition__mark { animation: none !important; }
+:root[data-performance="low"] .glass-panel { backdrop-filter: none; }
+:root[data-performance="low"] * { scroll-behavior: auto !important; }
+:root[data-tv-mode="true"] button,
+:root[data-tv-mode="true"] a,
+:root[data-tv-mode="true"] input,
+:root[data-tv-mode="true"] select { min-height: 2.75rem; }
+:root[data-tv-mode="true"] :focus-visible { outline: 3px solid #00a4dc; outline-offset: 4px; }
+:root[data-tv-mode="true"] main { font-size: 1.04em; }
+.music-spectrum { background: repeating-linear-gradient(90deg, transparent 0 10px, rgb(181 132 230 / .28) 10px 12px, transparent 12px 21px); mask-image: linear-gradient(to top, black, transparent); transform: scaleY(.55); transform-origin: bottom; animation: spectrum-drift 6s linear infinite alternate; }
+@keyframes spectrum-drift { to { transform: scaleY(1); opacity: .55; } }
 
 /* Hide scrollbars on horizontal media rows while keeping scroll */
 .no-scrollbar {
