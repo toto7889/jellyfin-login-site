@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import { BatteryWarning, Captions, ChevronLeft, Heart, Home, Languages, Maximize, Pause, Play, Search, Settings2, Tv, Volume2, VolumeX, WifiOff } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackStreams, getTrickplayManifest, reportProgress, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
+import Hls from "hls.js"
+import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackStreams, getTrickplayManifest, reportProgress, streamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
 import { useJellyfin } from "@/components/jellyfin-provider"
 
 type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; isLive?: boolean; previewMode?: boolean; previewDurationSeconds?: number; onClose: () => void }
@@ -273,15 +274,52 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     log("Chargement des pistes audio et sous-titres")
     const begin = () => { const resumeAt = restartPosition.current ?? startSeconds; if (resumeAt > 0 && Number.isFinite(video.duration)) video.currentTime = resumeAt; restartPosition.current = null; log("Métadonnées reçues, lecteur prêt"); if (batteryGate.current.blocked) setShowBatteryWarning(true); else if (previewMode || preferences.autoplay || restartWasPlaying.current) void video.play().catch(() => log("Lecture automatique bloquée par le navigateur")); restartWasPlaying.current = false }
     video.addEventListener("loadedmetadata", begin, { once: true })
-    const fallbackTimer = window.setTimeout(() => { if (!video.readyState && !ready) { log("Délai du flux direct dépassé"); setError("Le flux direct Jellyfin ne répond pas. Vérifiez le format et les permissions du serveur.") } }, 15000)
+    let cancelled = false
+    let liveStreamUrl: string | null = null
+    let hlsInstance: Hls | null = null
+    let compatibilityFallbackStarted = false
+    const startCompatibilityFallback = async () => {
+      if (isLive || compatibilityFallbackStarted || cancelled) return
+      compatibilityFallbackStarted = true
+      setError(null)
+      log("Format non pris en charge en direct, conversion Jellyfin en cours")
+      video.pause()
+      video.removeAttribute("src")
+      video.load()
+      const transcodedUrl = streamUrl(session, itemId)
+      if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = transcodedUrl
+        video.load()
+        return
+      }
+      if (!Hls.isSupported()) {
+        setError("Le navigateur ne lit pas ce format et ne prend pas HLS en charge.")
+        return
+      }
+      hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true, maxBufferLength: 20, backBufferLength: 30 })
+      hlsInstance.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) setError("Jellyfin n’a pas pu convertir ce fichier AVI/MKV/MP4 en flux compatible.")
+      })
+      hlsInstance.loadSource(transcodedUrl)
+      hlsInstance.attachMedia(video)
+    }
+    const fallbackTimer = window.setTimeout(() => {
+      if (!video.readyState && !ready && !isLive) {
+        log("Démarrage lent, activation du flux compatible")
+        void startCompatibilityFallback()
+      } else if (!video.readyState && !ready) {
+        setError("Le flux direct Jellyfin ne répond pas. Vérifiez la connexion et les permissions du serveur.")
+      }
+    }, 7000)
     const onReady = () => { log("Flux prêt à être lu"); setReady(true) }
     const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); if (!previewMode) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
     const onPause = () => { setPlaying(false); setControls(true); if (!previewMode && !batteryGate.current.blocked) setSecurityNotice(true) }
     const onTime = () => { setProgress(video.currentTime); setDuration(video.duration || 0); if (previewMode && previewDurationSeconds != null && video.currentTime >= previewDurationSeconds) { onClose(); return } if (!previewMode && video.duration && !video.paused) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: String(Math.round((video.currentTime / video.duration) * 100)) }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } }
-    const onError = () => setError("Ce format n'est pas lisible par le navigateur ou le serveur.")
+    const onError = () => {
+      if (!isLive && !compatibilityFallbackStarted) void startCompatibilityFallback()
+      else setError("Le format n’est pas lisible par le navigateur ou le serveur Jellyfin.")
+    }
     video.addEventListener("canplay", onReady); video.addEventListener("playing", onPlay); video.addEventListener("pause", onPause); video.addEventListener("timeupdate", onTime); video.addEventListener("durationchange", onTime); video.addEventListener("error", onError)
-    let cancelled = false
-    let liveStreamUrl: string | null = null
     void (async () => {
       try {
         if (!isLive) {
@@ -309,7 +347,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       }
     })()
     const interval = window.setInterval(() => { if (!previewMode && !video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
-    return () => { cancelled = true; if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeAttribute("src"); video.load() }
+    return () => { cancelled = true; hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeAttribute("src"); video.load() }
   }, [session, itemId, startPositionTicks, preferences.autoplay, retryNonce, isLive, audioIndex, subtitleIndex, quality, previewMode, previewDurationSeconds, onClose, portalReady, networkDecision])
 
   const hoverThumbnailIndex = trickplayInfo && hoverSeekTime != null

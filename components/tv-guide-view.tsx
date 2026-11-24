@@ -2,8 +2,8 @@
 
 import Link from "next/link"
 import useSWR from "swr"
-import { useEffect, useMemo, useState } from "react"
-import { CalendarDays, ChevronRight, Clock3, Info, Loader2, Play, Radio, Search, Tv, X } from "lucide-react"
+import { useMemo, useState } from "react"
+import { CalendarDays, ChevronRight, Clock3, Play, Radio, Search, Tv } from "lucide-react"
 import { AppHeader } from "@/components/app-header"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { VideoPlayer } from "@/components/video-player"
@@ -23,16 +23,6 @@ export function TvGuideView() {
 function TvGuideContent({ session }: { session: JellyfinSession }) {
   const [query, setQuery] = useState("")
   const [playing, setPlaying] = useState<PlayingChannel | null>(null)
-  const [selectedProgram, setSelectedProgram] = useState<{ program: BaseItem; channel: BaseItem } | null>(null)
-
-  useEffect(() => {
-    if (!selectedProgram) return
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelectedProgram(null)
-    }
-    window.addEventListener("keydown", closeOnEscape)
-    return () => window.removeEventListener("keydown", closeOnEscape)
-  }, [selectedProgram])
   const [rangeStart] = useState(() => {
     const date = new Date()
     date.setMinutes(0, 0, 0)
@@ -43,8 +33,13 @@ function TvGuideContent({ session }: { session: JellyfinSession }) {
     ["live-guide", session.userId, HOURS],
     async () => {
       const channels = await getLiveTvChannels(session)
-      const programs = await getLiveTvPrograms(session, channels.map((channel) => channel.Id), HOURS)
-      return { channels, programs }
+      try {
+        const programs = await getLiveTvPrograms(session, channels.map((channel) => channel.Id), HOURS)
+        return { channels, programs, scheduleUnavailable: false }
+      } catch {
+        const currentPrograms = channels.flatMap((channel) => channel.CurrentProgram ? [{ ...channel.CurrentProgram, ChannelId: channel.Id, ChannelName: channel.Name }] : [])
+        return { channels, programs: currentPrograms, scheduleUnavailable: true }
+      }
     },
     { refreshInterval: 60_000, revalidateOnFocus: true, dedupingInterval: 120_000, keepPreviousData: true },
   )
@@ -115,10 +110,11 @@ function TvGuideContent({ session }: { session: JellyfinSession }) {
                     const current = start <= Date.now() && end > Date.now()
                     const poster = primaryImage(session.serverUrl, program, 300) ?? backdropImage(session.serverUrl, program, 500)
                     const content = <><span className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/45 to-black/10" />{poster ? <img src={poster} alt="" loading="lazy" className="absolute inset-0 size-full object-cover opacity-70 transition duration-500 group-hover:scale-105" /> : null}<span className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" /><span className="absolute inset-x-3 bottom-2.5 z-10"><span className="flex items-center gap-1 text-[10px] font-semibold text-white/65"><span>{formatClock(program.StartDate)}</span><span>–</span><span>{formatClock(program.EndDate)}</span></span><span className="mt-1 block truncate text-xs font-semibold text-white">{program.Name}</span>{program.EpisodeTitle ? <span className="block truncate text-[10px] text-white/65">{program.EpisodeTitle}</span> : null}</span>{current ? <span className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full bg-[#e50914] px-2 py-1 text-[9px] font-bold uppercase tracking-wider"><span className="size-1.5 animate-pulse rounded-full bg-white" />En direct</span> : null}</>
+                    const infoUrl = `/guide-tv/program/${encodeURIComponent(program.Id)}?channel=${encodeURIComponent(channel.Name)}&number=${encodeURIComponent(channel.ChannelNumber ?? "")}&channelId=${encodeURIComponent(channel.Id)}&start=${encodeURIComponent(program.StartDate ?? "")}&end=${encodeURIComponent(program.EndDate ?? "")}`
                     return <div key={program.Id} className={`absolute top-2 h-[110px] overflow-hidden rounded-xl border bg-[#202127] transition duration-300 ${current ? "border-white/15 shadow-lg hover:border-white/40" : "border-white/[.09] hover:border-white/20"}`} style={{ left, width: Math.max(width - 6, 108) }}>
                       {content}
-                      {current && program.ChannelId ? <button type="button" onClick={() => setPlaying({ id: program.ChannelId!, name: channel.Name, program: program.Name })} aria-label={`Regarder ${program.Name} sur ${channel.Name}`} className="absolute inset-0 z-10 flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"><span className="flex size-9 items-center justify-center rounded-full bg-white text-black opacity-0 shadow-xl transition group-hover:opacity-100 group-focus-within:opacity-100"><Play className="ml-0.5 size-4 fill-current" /></span></button> : null}
-                      <button type="button" onClick={() => setSelectedProgram({ program, channel })} aria-label={`Informations sur ${program.Name}`} className="absolute left-2 top-2 z-20 flex size-7 items-center justify-center rounded-full border border-white/20 bg-black/65 text-white/85 backdrop-blur transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"><Info className="size-3.5" /></button>
+                      <Link href={infoUrl} aria-label={`Voir les informations de ${program.Name}`} className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white" />
+                      {current && program.ChannelId ? <button type="button" onClick={() => setPlaying({ id: program.ChannelId!, name: channel.Name, program: program.Name })} aria-label={`Regarder ${program.Name} sur ${channel.Name}`} className="absolute left-1/2 top-1/2 z-20 flex size-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-black opacity-0 shadow-xl transition hover:scale-105 hover:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"><Play className="ml-0.5 size-4 fill-current" /></button> : null}
                     </div>
                   })}
                   {nowOffset < HOURS * 60 ? <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 z-[5] w-px bg-[#ff4650] shadow-[0_0_8px_#ff4650]" style={{ left: `${nowOffset * PIXELS_PER_MINUTE}px` }}><span className="absolute -top-1 -left-1 size-2 rounded-full bg-[#ff4650]" /></div> : null}
@@ -132,27 +128,7 @@ function TvGuideContent({ session }: { session: JellyfinSession }) {
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-white/[.08] px-4 py-3 text-[11px] text-white/45"><span className="flex items-center gap-2"><span className="size-2 rounded-full bg-[#ff4650]" />Heure actuelle</span><span className="flex items-center gap-2"><span className="size-2 rounded-full bg-[#e50914]" />Programme en direct · sélectionnez-le pour regarder</span><span className="ml-auto">{filteredChannels.length} chaîne{filteredChannels.length > 1 ? "s" : ""}</span></div>
       </div>}
       <div className="mt-6 flex justify-end"><Link href="/tv" className="inline-flex items-center gap-2 text-sm text-white/55 transition hover:text-white">Explorer le hub TV<ChevronRight className="size-4" /></Link></div>
-      {selectedProgram ? (() => {
-        const { program, channel } = selectedProgram
-        const artwork = backdropImage(session.serverUrl, program, 900) ?? primaryImage(session.serverUrl, program, 600)
-        const isCurrent = Boolean(program.StartDate && program.EndDate && Date.parse(program.StartDate) <= Date.now() && Date.parse(program.EndDate) > Date.now())
-        return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-in fade-in" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedProgram(null) }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="program-info-title" className="relative w-full max-w-3xl overflow-hidden rounded-3xl border border-white/10 bg-[#141519] shadow-2xl animate-in zoom-in-95">
-            <button type="button" onClick={() => setSelectedProgram(null)} aria-label="Fermer les informations du programme" className="absolute right-3 top-3 z-10 flex size-10 items-center justify-center rounded-full border border-white/15 bg-black/60 text-white hover:bg-black"><X className="size-5" /></button>
-            <div className="grid sm:grid-cols-[minmax(0,1fr)_1.2fr]">
-              <div className="relative aspect-video bg-white/[.04] sm:aspect-auto sm:min-h-[340px]">{artwork ? <img src={artwork} alt={`Visuel de ${program.Name}`} crossOrigin="anonymous" className="absolute inset-0 size-full object-cover" /> : <div className="flex size-full min-h-48 items-center justify-center text-white/30"><Tv className="size-10" /></div>}<div className="absolute inset-0 bg-gradient-to-t from-[#141519] via-black/10 to-transparent sm:bg-gradient-to-r" /></div>
-              <div className="flex flex-col gap-4 p-5 sm:p-7">
-                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.18em] text-[#d9a76a]"><Tv className="size-4" />{channel.ChannelNumber ? `Chaîne ${channel.ChannelNumber} · ` : ""}{channel.Name}</p>
-                <div><h2 id="program-info-title" className="text-2xl font-semibold tracking-tight">{program.Name}</h2>{program.EpisodeTitle ? <p className="mt-1 text-sm text-white/65">{program.EpisodeTitle}</p> : null}</div>
-                <div className="flex flex-wrap gap-2 text-xs text-white/65">{program.StartDate && program.EndDate ? <span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">{formatClock(program.StartDate)} – {formatClock(program.EndDate)}</span> : null}{program.ProductionYear ? <span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">{program.ProductionYear}</span> : null}{program.OfficialRating ? <span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">{program.OfficialRating}</span> : null}{program.CommunityRating ? <span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">★ {program.CommunityRating.toFixed(1)}</span> : null}{isCurrent ? <span className="rounded-full bg-[#e50914] px-3 py-1.5 font-semibold text-white">En direct</span> : null}</div>
-                {program.Genres?.length ? <p className="text-xs text-white/50">{program.Genres.join(" · ")}</p> : null}
-                <p className="max-h-36 overflow-y-auto text-sm leading-relaxed text-white/70">{program.Overview || "Aucune description n’est disponible pour ce programme."}</p>
-                {isCurrent && program.ChannelId ? <button type="button" onClick={() => { setPlaying({ id: program.ChannelId!, name: channel.Name, program: program.Name }); setSelectedProgram(null) }} className="mt-auto inline-flex min-h-11 items-center justify-center gap-2 self-start rounded-full bg-white px-5 text-sm font-semibold text-black transition hover:scale-[1.02]"><Play className="size-4 fill-current" />Regarder en direct</button> : null}
-              </div>
-            </div>
-          </section>
-        </div>
-      })() : null}
+      {data?.scheduleUnavailable ? <p role="status" className="mt-4 rounded-xl border border-amber-300/15 bg-amber-300/[.06] px-4 py-3 text-sm text-amber-100/80">Le serveur n’a pas répondu pour le guide des horaires. Les chaînes et les programmes en cours restent accessibles. <button type="button" onClick={() => void mutate()} className="ml-1 font-semibold underline underline-offset-2">Réessayer</button></p> : null}
       {playing ? <VideoPlayer session={session} itemId={playing.id} title={playing.name} subtitle={playing.program} isLive onClose={() => setPlaying(null)} /> : null}
     </main>
   </div>
