@@ -2,7 +2,7 @@
 
 import useSWR from "swr"
 import { useEffect, useState } from "react"
-import { ArrowDown, Clock3, Heart, Loader2, Play, Share2, Star, User } from "lucide-react"
+import { ArrowDown, Check, ChevronRight, Clock3, Film, Heart, Loader2, Play, Share2, Sparkles, Star, User } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { VideoPlayer } from "@/components/video-player"
 import { Button } from "@/components/ui/button"
@@ -324,106 +324,110 @@ function SeasonsSection({
   onPlay: (t: PlayTarget) => void
 }) {
   const [activeSeason, setActiveSeason] = useState(seasons[0]?.Id ?? null)
-
   const { data: episodes, isLoading } = useSWR(
     activeSeason ? ["episodes", seriesId, activeSeason] : null,
     () => getEpisodes(session, seriesId, activeSeason as string),
+    { keepPreviousData: true },
   )
 
   if (!seasons.length) return null
+  const currentSeason = seasons.find((season) => season.Id === activeSeason)
+  const inProgressCount = (episodes ?? []).filter((episode) => {
+    const progress = episode.UserData?.PlayedPercentage ?? 0
+    return progress > 0 && progress < 100
+  }).length
 
   return (
-    <div className="mt-10 flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-2">
+    <section aria-labelledby="episodes-title" className="mt-10 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-white/[.045] via-[#101116] to-[#111216] p-4 shadow-[0_24px_80px_rgba(0,0,0,.22)] sm:p-7 lg:p-9">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">Saisons et épisodes</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Choisissez une saison pour parcourir les épisodes et reprendre votre lecture.</p>
+          <p className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.24em] text-[#f2bb55]"><Film className="size-3.5" />Explorer la série</p>
+          <h2 id="episodes-title" className="text-2xl font-bold tracking-tight sm:text-3xl">Saisons et épisodes</h2>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/50">Choisissez un épisode pour le lancer ou retrouver votre progression.</p>
         </div>
-        {episodes?.length ? <span className="text-sm text-muted-foreground">{episodes.length} épisode{episodes.length > 1 ? "s" : ""}</span> : null}
-      </div>
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Saisons">
-        {seasons.map((s) => (
-          <button
-            key={s.Id}
-            type="button"
-            onClick={() => setActiveSeason(s.Id)}
-            role="tab"
-            aria-selected={activeSeason === s.Id}
-            className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-              activeSeason === s.Id
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "bg-secondary text-secondary-foreground hover:bg-secondary/70"
-            }`}
-          >
-            {s.Name}{s.UserData?.PlayedPercentage === 100 ? " · Terminée" : ""}
-          </button>
-        ))}
+        <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/65">
+          <Sparkles className="size-3.5 text-[#f2bb55]" />
+          <span>{seasons.length} saison{seasons.length === 1 ? "" : "s"}</span>
+          {episodes ? <><span aria-hidden="true" className="text-white/25">·</span><span>{episodes.length} épisode{episodes.length === 1 ? "" : "s"}</span></> : null}
+        </div>
       </div>
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-10">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      <div className="mt-6 flex gap-2 overflow-x-auto pb-2" aria-label="Choisir une saison">
+        {seasons.map((season, index) => {
+          const active = activeSeason === season.Id
+          const finished = season.UserData?.PlayedPercentage === 100
+          return (
+            <button
+              key={season.Id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setActiveSeason(season.Id)}
+              className={`group inline-flex min-h-12 shrink-0 items-center gap-3 rounded-2xl border px-4 text-left transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f2bb55] ${active ? "border-[#f2bb55]/60 bg-[#f2bb55]/10 text-white shadow-[0_8px_30px_rgba(242,187,85,.09)]" : "border-white/10 bg-white/[.025] text-white/55 hover:border-white/25 hover:bg-white/[.06] hover:text-white"}`}
+            >
+              <span className={`flex size-8 items-center justify-center rounded-xl text-xs font-bold transition-colors ${active ? "bg-[#f2bb55] text-[#17130b]" : "bg-white/10 text-white/60 group-hover:bg-white/15"}`}>{index + 1}</span>
+              <span className="text-sm font-semibold">{season.Name || `Saison ${index + 1}`}</span>
+              {finished ? <Check className="size-4 text-emerald-300" aria-label="Saison terminée" /> : null}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between border-b border-white/10 pb-4">
+        <div>
+          <h3 className="font-semibold text-white">{currentSeason?.Name ?? "Épisodes"}</h3>
+          <p className="mt-1 text-xs text-white/45">{inProgressCount ? `${inProgressCount} épisode${inProgressCount === 1 ? "" : "s"} à reprendre` : "Votre prochaine séance commence ici"}</p>
         </div>
-      ) : (
-        <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border">
-          {(episodes ?? []).map((ep) => {
-            const thumb = primaryImage(session.serverUrl, ep, 320)
+        {episodes?.length ? <span className="text-xs tabular-nums text-white/45">{episodes.length} épisodes</span> : null}
+      </div>
+
+      {isLoading && !episodes ? (
+        <div role="status" className="grid gap-3 pt-4 sm:grid-cols-2">
+          {[0, 1, 2, 3].map((index) => <div key={index} className="flex gap-3 rounded-2xl border border-white/[.07] bg-white/[.025] p-3"><div className="aspect-video w-32 shrink-0 animate-pulse rounded-xl bg-white/10" /><div className="flex flex-1 flex-col justify-center gap-3"><div className="h-3 w-2/3 animate-pulse rounded bg-white/10" /><div className="h-3 w-1/3 animate-pulse rounded bg-white/[.06]" /></div></div>)}
+        </div>
+      ) : (episodes ?? []).length ? (
+        <ul key={activeSeason} className="grid gap-3 pt-4 sm:grid-cols-2">
+          {(episodes ?? []).map((episode, index) => {
+            const thumb = primaryImage(session.serverUrl, episode, 480)
+            const progress = episode.UserData?.PlayedPercentage ?? 0
+            const inProgress = progress > 0 && progress < 100
+            const finished = episode.UserData?.Played || progress >= 100
+            const episodeLabel = `S${String(episode.ParentIndexNumber ?? seasons.indexOf(currentSeason ?? seasons[0]) + 1).padStart(2, "0")} · E${String(episode.IndexNumber ?? index + 1).padStart(2, "0")}`
             return (
-              <li key={ep.Id}>
+              <li key={episode.Id} className="animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}>
                 <button
                   type="button"
-                  onClick={() =>
-                    onPlay({
-                      id: ep.Id,
-                      title: ep.SeriesName ?? ep.Name,
-                      subtitle:
-                        ep.IndexNumber != null
-                          ? `S${ep.ParentIndexNumber ?? 1} E${ep.IndexNumber} · ${ep.Name}`
-                          : ep.Name,
-                      backdrop: backdropImage(session.serverUrl, ep, 1600),
-                      positionTicks: ep.UserData?.PlaybackPositionTicks,
-                      durationTicks: ep.RunTimeTicks,
-                    })
-                  }
-                  className="flex w-full items-start gap-3 bg-card p-3 text-left transition-colors hover:bg-secondary sm:items-center sm:gap-4"
+                  onClick={() => onPlay({
+                    id: episode.Id,
+                    title: episode.SeriesName ?? episode.Name,
+                    subtitle: `${episodeLabel} · ${episode.Name}`,
+                    backdrop: backdropImage(session.serverUrl, episode, 1600),
+                    positionTicks: episode.UserData?.PlaybackPositionTicks,
+                    durationTicks: episode.RunTimeTicks,
+                  })}
+                  aria-label={`${inProgress ? "Reprendre" : "Lancer"} ${episodeLabel}, ${episode.Name}`}
+                  className="group flex h-full w-full gap-3 rounded-2xl border border-white/[.08] bg-white/[.025] p-3 text-left transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[.055] hover:shadow-[0_16px_38px_rgba(0,0,0,.24)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f2bb55] sm:gap-4"
                 >
-                  <div className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-md bg-secondary">
-                    {thumb ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={thumb || "/placeholder.svg"}
-                        alt=""
-                        crossOrigin="anonymous"
-                        loading="lazy"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : null}
-                    <span className="absolute inset-0 flex items-center justify-center bg-background/30 opacity-0 transition-opacity hover:opacity-100">
-                      <Play className="size-6 fill-white text-white" />
-                    </span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">
-                      {ep.IndexNumber != null ? `${ep.IndexNumber}. ` : ""}
-                      {ep.Name}
-                    </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      {ep.RunTimeTicks ? <span>{ticksToTime(ep.RunTimeTicks)}</span> : null}
-                      {ep.UserData?.PlaybackPositionTicks ? <span className="font-medium text-primary">Vous avez déjà commencé cet épisode · Reprendre</span> : ep.UserData?.Played ? <span>Épisode terminé</span> : null}
-                    </div>
-                    {(ep.UserData?.PlayedPercentage ?? 0) > 0 && (ep.UserData?.PlayedPercentage ?? 0) < 100 ? <div className="mt-2 h-1 w-full max-w-56 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary" style={{ width: `${ep.UserData?.PlayedPercentage}%` }} /></div> : null}
-                    {ep.Overview ? (
-                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                        {ep.Overview}
-                      </p>
-                    ) : null}
-                  </div>
+                  <span className="relative aspect-video w-[38%] max-w-44 shrink-0 self-start overflow-hidden rounded-xl bg-[#1d1e24]">
+                    {thumb ? <img src={thumb} alt="" crossOrigin="anonymous" loading="lazy" className="size-full object-cover transition-transform duration-500 group-hover:scale-105" /> : <span className="flex size-full items-center justify-center"><Film className="size-6 text-white/25" /></span>}
+                    <span className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/5 to-transparent" />
+                    <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-[10px] font-semibold tracking-wide text-white backdrop-blur">{episodeLabel}</span>
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"><span className="flex size-10 items-center justify-center rounded-full bg-white text-black shadow-xl transition-transform duration-200 group-hover:scale-110">{inProgress ? <Play className="size-4 fill-current" /> : <Play className="ml-0.5 size-4 fill-current" />}</span></span>
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col justify-center py-1">
+                    <span className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.14em] text-white/40">{episodeLabel}{episode.RunTimeTicks ? <><span aria-hidden="true">·</span><span>{ticksToTime(episode.RunTimeTicks)}</span></> : null}</span>
+                    <span className="line-clamp-2 text-sm font-semibold leading-snug text-white transition-colors group-hover:text-[#f2bb55]">{episode.Name}</span>
+                    {episode.Overview ? <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-white/45">{episode.Overview}</span> : null}
+                    <span className="mt-3 flex items-center gap-1.5 text-[11px] font-medium text-white/55">{inProgress ? <><span className="size-1.5 rounded-full bg-[#f2bb55]" />Reprendre · {Math.round(progress)} %</> : finished ? <><Check className="size-3.5 text-emerald-300" />Déjà regardé</> : <>Lancer l&apos;épisode<ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></>}</span>
+                    {inProgress ? <span className="mt-2 h-1 overflow-hidden rounded-full bg-white/10"><span className="block h-full rounded-full bg-gradient-to-r from-[#d59a3a] to-[#f2bb55] transition-[width] duration-700" style={{ width: `${Math.min(progress, 100)}%` }} /></span> : null}
+                  </span>
                 </button>
               </li>
             )
           })}
         </ul>
+      ) : (
+        <p className="py-12 text-center text-sm text-white/45">Aucun épisode disponible dans cette saison.</p>
       )}
-    </div>
+    </section>
   )
 }

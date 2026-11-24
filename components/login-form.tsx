@@ -135,7 +135,7 @@ export function LoginForm() {
 
         <section className="w-full max-w-[430px] netflix-scale-in">
           <div className="mb-7 flex items-center gap-2 lg:hidden"><span className="flex size-9 items-center justify-center rounded-lg bg-[#e50914]"><Play className="size-5 fill-white" /></span><span className="text-xl font-black tracking-tight">JELLYFIN</span></div>
-          <form onSubmit={onSubmit} className="rounded-md bg-black/75 px-7 py-9 shadow-2xl backdrop-blur-md sm:px-12 sm:py-12">
+          <form onSubmit={onSubmit} className="login-panel rounded-2xl px-7 py-9 shadow-2xl backdrop-blur-xl sm:px-10 sm:py-10">
             <h2 className="text-3xl font-bold tracking-tight">S&apos;identifier</h2>
             <p className="mt-2 text-sm text-white/55">Le navigateur se connecte directement à votre serveur Jellyfin avec votre nom d&apos;utilisateur et votre mot de passe.</p>
             <div className="mt-5 flex items-center gap-3 rounded-lg border border-white/10 bg-white/[.04] px-3 py-2.5 text-xs" aria-live="polite">

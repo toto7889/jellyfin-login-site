@@ -66,7 +66,7 @@ function AppHeaderContent() {
               <button type="button" onClick={() => setMenuOpen((v) => !v)} className="flex items-center gap-2 rounded-md p-1.5 text-white/80 hover:bg-white/10" aria-label="Ouvrir le menu du compte" aria-expanded={menuOpen} aria-haspopup="menu">
                 <span className="flex size-8 items-center justify-center rounded bg-[#e50914] text-xs font-bold">{session?.userName?.slice(0, 1).toUpperCase()}</span><ChevronDown className="size-3.5" />
               </button>
-              {menuOpen ? (
+              {menuOpen && (
                 <div role="menu" className="absolute right-0 top-12 max-h-[calc(100dvh-5rem)] w-64 overflow-y-auto rounded-xl border border-white/10 bg-[#191919] p-2 shadow-2xl animate-in fade-in slide-in-from-top-2">
                   <p className="px-3 py-2 text-sm font-semibold text-white">{session?.userName}</p>
                   <div className="my-1 border-t border-white/10" />
@@ -85,7 +85,7 @@ function AppHeaderContent() {
                   </div>
                   <button type="button" onClick={() => { setMenuOpen(false); setConfirmLogout(true) }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-300 hover:bg-red-500/10"><LogOut className="size-4" /> Se déconnecter</button>
                 </div>
-              ) : null}
+              )}
             </div>
           </div>
         </div>
