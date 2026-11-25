@@ -4,15 +4,17 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { BatteryWarning, Captions, ChevronLeft, Heart, Home, Languages, Maximize, Pause, Play, Search, Settings2, Tv, Volume2, VolumeX, WifiOff } from "lucide-react"
 import { useEffect, useRef, useState, type CSSProperties } from "react"
+import { useSWRConfig } from "swr"
 import { createPortal } from "react-dom"
 import Hls from "hls.js"
-import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackStreams, getTrickplayManifest, reportProgress, streamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
+import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackInfo, getTrickplayManifest, reportProgress, streamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
 import { useJellyfin } from "@/components/jellyfin-provider"
 
-type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; durationTicks?: number; isLive?: boolean; previewMode?: boolean; previewDurationSeconds?: number; isOpen?: boolean; onClose: () => void }
+type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; durationTicks?: number; isLive?: boolean; isSeriesEpisode?: boolean; previewMode?: boolean; previewDurationSeconds?: number; isOpen?: boolean; onClose: () => void }
 
-export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, durationTicks, isLive = false, previewMode = false, previewDurationSeconds, isOpen = true, onClose }: Props) {
+export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, durationTicks, isLive = false, isSeriesEpisode = false, previewMode = false, previewDurationSeconds, isOpen = true, onClose }: Props) {
   const { preferences, currentIp, blockIp, serverHealth } = useJellyfin()
+  const { mutate } = useSWRConfig()
   const router = useRouter()
   const idleLimit = 120
   const [idleSeconds, setIdleSeconds] = useState(0)
@@ -22,6 +24,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const hideTimer = useRef<number | null>(null)
   const [ready, setReady] = useState(false)
   const [isBuffering, setIsBuffering] = useState(false)
+  const [transcodingRequested, setTranscodingRequested] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [muted, setMuted] = useState(false)
@@ -311,26 +314,31 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   useEffect(() => {
     const video = videoRef.current
     if (!video || !portalReady || networkDecision === "checking" || networkDecision === "warning") return
-    setReady(false); setIsBuffering(true); setError(null); setRetrying(false); setLogs([])
+    setReady(false); setIsBuffering(true); setTranscodingRequested(false); setError(null); setRetrying(false); setLogs([])
     video.crossOrigin = "anonymous"
     const startSeconds = startPositionTicks ? startPositionTicks / 10_000_000 : 0
     log(isLive ? "Ouverture de la session TV Jellyfin" : "Initialisation du flux direct Jellyfin")
     log("Chargement des pistes audio et sous-titres")
-    const begin = () => { const resumeAt = restartPosition.current ?? startSeconds; if (resumeAt > 0 && (Number.isFinite(video.duration) || knownDuration > 0)) video.currentTime = resumeAt; restartPosition.current = null; log("Métadonnées reçues, lecteur prêt"); if (batteryGate.current.blocked) setShowBatteryWarning(true); else if (previewActiveRef.current || autoplayRef.current || restartWasPlaying.current) void video.play().catch(() => log("Lecture automatique bloquée par le navigateur")); restartWasPlaying.current = false }
+    const begin = () => { const resumeAt = restartPosition.current ?? startSeconds; if (resumeAt > 0 && (Number.isFinite(video.duration) || knownDuration > 0)) video.currentTime = resumeAt; restartPosition.current = null; log("Métadonnées reçues, attente du premier flux décodable"); if (batteryGate.current.blocked) setShowBatteryWarning(true) }
     video.addEventListener("loadedmetadata", begin, { once: true })
     let cancelled = false
     let liveStreamUrl: string | null = null
     let hlsInstance: Hls | null = null
+    let playbackInfo: Awaited<ReturnType<typeof getPlaybackInfo>> | null = null
     let compatibilityFallbackStarted = false
+    const selectedQuality = quality === "480p" ? { maxStreamingBitrate: 1_800_000, maxWidth: 854, maxHeight: 480 } : quality === "720p" ? { maxStreamingBitrate: 5_000_000, maxWidth: 1280, maxHeight: 720 } : quality === "1080p" ? { maxStreamingBitrate: 10_000_000, maxWidth: 1920, maxHeight: 1080 } : { maxStreamingBitrate: 20_000_000 }
+    const playbackSource = () => playbackInfo?.MediaSources?.find((source) => source.Id) ?? playbackInfo?.MediaSources?.[0]
     const startCompatibilityFallback = async () => {
       if (isLive || compatibilityFallbackStarted || cancelled) return
       compatibilityFallbackStarted = true
       setError(null)
-      log("Format non pris en charge en direct, conversion Jellyfin en cours")
+      setTranscodingRequested(true)
+      log("Le navigateur a besoin d’un flux compatible, Jellyfin prépare le transcodage")
       video.pause()
       video.removeAttribute("src")
       video.load()
-      const transcodedUrl = streamUrl(session, itemId)
+      const source = playbackSource()
+      const transcodedUrl = streamUrl(session, itemId, { ...selectedQuality, mediaSourceId: source?.Id, playSessionId: playbackInfo?.PlaySessionId, audioStreamIndex: audioIndex, subtitleStreamIndex: subtitleIndex })
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = transcodedUrl
         video.load()
@@ -342,24 +350,33 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       }
       hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true, maxBufferLength: 20, backBufferLength: 30 })
       hlsInstance.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) setError("Jellyfin n’a pas pu convertir ce fichier AVI/MKV/MP4 en flux compatible.")
+        if (data.fatal) setError("Jellyfin n’a pas pu convertir ce fichier en flux compatible.")
       })
       hlsInstance.loadSource(transcodedUrl)
       hlsInstance.attachMedia(video)
     }
-    const fallbackTimer = window.setTimeout(() => {
-      if (!video.readyState && !ready && !isLive) {
-        log("Démarrage lent, activation du flux compatible")
-        void startCompatibilityFallback()
-      } else if (!video.readyState && !ready) {
-        setError("Le flux direct Jellyfin ne répond pas. Vérifiez la connexion et les permissions du serveur.")
+    const onReady = () => {
+      log("Jellyfin a fourni un flux décodable, lancement du lecteur")
+      setTranscodingRequested(false)
+      setReady(true)
+      setIsBuffering(false)
+      if (batteryGate.current.blocked) setShowBatteryWarning(true)
+      else if (previewActiveRef.current || autoplayRef.current || restartWasPlaying.current) {
+        void video.play().catch(() => log("Lecture automatique bloquée par le navigateur"))
       }
-    }, 7000)
-    const onReady = () => { log("Flux prêt à être lu"); setReady(true); setIsBuffering(false) }
+      restartWasPlaying.current = false
+    }
     const onWaiting = () => { if (video.currentTime > 0 || playing) setIsBuffering(true) }
     const onPlaying = () => setIsBuffering(false)
-    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setIsBuffering(false); setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); if (!previewActiveRef.current) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
-    const onPause = () => { setPlaying(false); setControls(true); if (!previewActiveRef.current && !batteryGate.current.blocked) setSecurityNotice(true) }
+    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setIsBuffering(false); setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); syncResumePosition(false); if (!previewActiveRef.current) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
+    const syncResumePosition = (paused: boolean) => {
+      if (previewActiveRef.current || isLive || !Number.isFinite(video.currentTime) || (paused && video.currentTime <= 0)) return
+      void reportProgress(session, itemId, video.currentTime * 10_000_000, paused).finally(() => {
+        void mutate(["home", session.userId])
+        void mutate(["resume", session.userId])
+      })
+    }
+    const onPause = () => { setPlaying(false); setControls(true); syncResumePosition(true); if (!previewActiveRef.current && !batteryGate.current.blocked) setSecurityNotice(true) }
     const onTime = () => {
       setProgress(video.currentTime)
       const activeDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : knownDuration
@@ -389,13 +406,23 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       try {
         if (!isLive) {
           setMediaStreams([])
-          const selectedQuality = quality === "480p" ? { maxStreamingBitrate: 1800000, maxWidth: 854, maxHeight: 480 } : quality === "720p" ? { maxStreamingBitrate: 5000000, maxWidth: 1280, maxHeight: 720 } : quality === "1080p" ? { maxStreamingBitrate: 10000000, maxWidth: 1920, maxHeight: 1080 } : {}
+          try {
+            playbackInfo = await getPlaybackInfo(session, itemId, selectedQuality.maxStreamingBitrate)
+          } catch {
+            log("PlaybackInfo indisponible, tentative de lecture directe")
+          }
+          if (cancelled) return
+          const source = playbackSource()
+          setMediaStreams(source?.MediaStreams ?? [])
           video.preload = "auto"
-          video.src = directStreamUrl(session, itemId, { ...selectedQuality, audioStreamIndex: audioIndex, subtitleStreamIndex: subtitleIndex })
+          if (source && !source.SupportsDirectPlay && !source.SupportsDirectStream && source.SupportsTranscoding) {
+            log("Jellyfin recommande le transcodage pour ce média")
+            void startCompatibilityFallback()
+            return
+          }
+          log(source?.SupportsDirectPlay || source?.SupportsDirectStream ? "Lecture directe autorisée par Jellyfin" : "Tentative de lecture directe")
+          video.src = directStreamUrl(session, itemId, { ...selectedQuality, mediaSourceId: source?.Id, playSessionId: playbackInfo?.PlaySessionId, audioStreamIndex: audioIndex, subtitleStreamIndex: subtitleIndex })
           video.load()
-          void getPlaybackStreams(session, itemId).then((tracks) => {
-            if (!cancelled) setMediaStreams(tracks)
-          }).catch(() => undefined)
           return
         }
         const streamUrl = await getLiveTvStreamUrl(session, itemId)
@@ -432,7 +459,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       }
     })()
     const interval = window.setInterval(() => { if (!previewActiveRef.current && !video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
-    return () => { cancelled = true; hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
+    return () => { syncResumePosition(video.paused); cancelled = true; hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
   }, [session, itemId, startPositionTicks, durationTicks, retryNonce, isLive, audioIndex, subtitleIndex, quality, portalReady, networkDecision])
 
   const hoverThumbnailIndex = trickplayInfo && hoverSeekTime != null
@@ -459,7 +486,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       {previewLimitReached ? <div role="status" className="absolute left-1/2 top-1/2 z-30 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-3 rounded-2xl border border-white/15 bg-black/75 p-5 text-center shadow-2xl backdrop-blur-xl"><p className="text-sm text-white/75">L’aperçu est terminé. Le flux est toujours chargé.</p><button type="button" onClick={continueAfterPreview} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-5 text-sm font-semibold text-black transition hover:scale-[1.02]"><Play className="size-4 fill-current" />Continuer sans recharger</button></div> : null}
       {showLogs ? <aside className="absolute right-5 top-20 z-40 w-[min(420px,calc(100%-2.5rem))] rounded-2xl border border-white/15 bg-black/80 p-4 font-mono text-[11px] text-white/75 shadow-2xl backdrop-blur-xl"><div className="mb-3 flex items-center justify-between font-sans text-sm text-white"><span>Diagnostic de lecture</span><button type="button" onClick={() => setShowLogs(false)} aria-label="Fermer les logs">Fermer</button></div><div className="max-h-44 overflow-auto">{logs.length ? logs.map((entry, index) => <p key={`${entry}-${index}`} className="border-b border-white/5 py-1">{entry}</p>) : <p>Aucun événement.</p>}</div></aside> : null}
       {securityNotice && !playing ? <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-2xl border border-amber-200/20 bg-black/70 px-5 py-3 text-center text-sm text-amber-100 backdrop-blur-xl">Lecture en pause. Redirection dans <strong>{Math.max(0, idleLimit - idleSeconds)} s</strong> si aucun film n&apos;est lancé.</div> : null}
-      {!ready ? <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-[#070707]">{backdropUrl ? <img src={backdropUrl} alt="" className="absolute inset-0 h-full w-full scale-105 object-cover opacity-30 blur-xl" /> : null}<div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/70" /><div className="relative mx-5 w-full max-w-md rounded-3xl border border-white/10 bg-black/45 p-8 text-center shadow-2xl backdrop-blur-xl">{error ? <><p className="text-xs font-semibold uppercase tracking-[.24em] text-red-300">Lecture interrompue</p><p className="mt-3 text-sm leading-relaxed text-white/80">{error}</p><button type="button" onClick={() => { setRetrying(true); setRetryNonce((value) => value + 1) }} className="mt-6 min-h-11 rounded-xl bg-[#e50914] px-6 text-sm font-semibold transition hover:bg-[#f6121d] disabled:opacity-60" disabled={retrying}>{retrying ? "Nouvelle tentative…" : "Relancer la lecture"}</button><p className="mt-4 text-xs text-white/45">Le flux sera réouvert depuis votre position actuelle.</p></> : <><div className="mx-auto flex size-14 items-center justify-center rounded-2xl border border-red-400/30 bg-red-500/10"><div className="size-7 animate-spin rounded-full border-[3px] border-white/20 border-t-[#f04452]" /></div><p className="mt-6 text-[10px] font-bold uppercase tracking-[.34em] text-red-300">JFLX · LECTURE</p><h2 className="mt-2 line-clamp-2 text-xl font-semibold text-white">{title}</h2>{subtitle ? <p className="mt-1 text-sm text-white/60">{subtitle}</p> : null}<p className="mt-5 text-xs text-white/55">{isLive ? "Connexion au direct…" : "Ouverture du flux Jellyfin…"}</p><div className="mx-auto mt-4 h-1 w-44 overflow-hidden rounded-full bg-white/10"><div className="h-full w-1/3 animate-pulse rounded-full bg-red-500" /></div></>}</div></div> : null}
+      {!ready ? <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-[#070707]">{backdropUrl ? <img src={backdropUrl} alt="" className="absolute inset-0 h-full w-full scale-105 object-cover opacity-30 blur-xl" /> : null}<div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/70" /><div className="relative mx-5 w-full max-w-md rounded-3xl border border-white/10 bg-black/45 p-8 text-center shadow-2xl backdrop-blur-xl">{error ? <><p className="text-xs font-semibold uppercase tracking-[.24em] text-red-300">Lecture interrompue</p><p className="mt-3 text-sm leading-relaxed text-white/80">{error}</p><button type="button" onClick={() => { setRetrying(true); setRetryNonce((value) => value + 1) }} className="mt-6 min-h-11 rounded-xl bg-[#e50914] px-6 text-sm font-semibold transition hover:bg-[#f6121d] disabled:opacity-60" disabled={retrying}>{retrying ? "Nouvelle tentative…" : "Relancer la lecture"}</button><p className="mt-4 text-xs text-white/45">Le flux sera réouvert depuis votre position actuelle.</p></> : <><div className="mx-auto flex size-14 items-center justify-center rounded-2xl border border-red-400/30 bg-red-500/10"><div className="size-7 animate-spin rounded-full border-[3px] border-white/20 border-t-[#f04452]" /></div><p className="mt-6 text-[10px] font-bold uppercase tracking-[.34em] text-red-300">JFLX · LECTURE</p><h2 className="mt-2 line-clamp-2 text-xl font-semibold text-white">{title}</h2>{subtitle ? <p className="mt-1 text-sm text-white/60">{subtitle}</p> : null}<p className="mt-5 text-xs text-white/55">{transcodingRequested ? "Jellyfin prépare le transcodage… Le lecteur démarre dès que le flux est prêt." : isLive ? "Connexion au direct…" : "Connexion à Jellyfin, attente des premières données vidéo…"}</p><div className="mx-auto mt-4 h-1 w-44 overflow-hidden rounded-full bg-white/10"><div className="h-full w-1/3 animate-pulse rounded-full bg-red-500" /></div></>}</div></div> : null}
       {ready && isBuffering && playing ? <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/20" role="status" aria-live="polite"><div className="flex items-center gap-3 rounded-full border border-white/10 bg-black/70 px-5 py-3 text-sm text-white shadow-xl backdrop-blur-md"><span className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> Reprise du flux…</div></div> : null}
       {ready && !playing && !error ? <button type="button" onClick={togglePlay} className="absolute left-1/2 top-1/2 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-black shadow-2xl transition hover:scale-105" aria-label="Lire"><Play className="ml-1 size-7 fill-current" /></button> : null}
     </div>
@@ -479,7 +506,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     </div>
     {networkDecision === "warning" ? <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" role="presentation"><section role="alertdialog" aria-modal="true" aria-labelledby="network-warning-title" aria-describedby="network-warning-description" className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#141414] p-6 shadow-2xl sm:p-8"><div className="mb-5 flex size-12 items-center justify-center rounded-2xl border border-amber-300/20 bg-amber-300/10 text-amber-200"><WifiOff className="size-6" /></div><p className="text-xs font-semibold uppercase tracking-[.2em] text-amber-200">Qualité réseau insuffisante</p><h2 id="network-warning-title" className="mt-2 text-xl font-semibold text-white sm:text-2xl">Votre connexion n&apos;est pas assez bonne</h2><p id="network-warning-description" className="mt-3 text-sm leading-relaxed text-white/65">Votre connexion ne semble pas suffisante pour regarder un film ou la TV en streaming avec une bonne qualité. Vous pouvez tout de même continuer, quitter ou réduire la qualité vidéo.</p><div className="mt-5 flex flex-wrap gap-2 text-xs text-white/55"><span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">Ping serveur : {serverHealth?.online ? `${serverHealth.latencyMs ?? "—"} ms` : "injoignable"}</span>{networkProfile.effectiveType ? <span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">Réseau : {networkProfile.effectiveType.toUpperCase()}</span> : null}{networkProfile.downlink != null ? <span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5">Débit estimé : {networkProfile.downlink} Mb/s</span> : null}</div><div className="mt-7 grid gap-3"><button type="button" onClick={() => setNetworkDecision("continue")} className="rounded-xl bg-[#e50914] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#f6121d]">Continuer quand même</button><button type="button" onClick={() => requestExit("/")} className="rounded-xl border border-white/15 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Quitter</button><button type="button" onClick={() => { setQuality("480p"); setNetworkDecision("continue") }} className="rounded-xl border border-white/15 bg-white/[.04] px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Lire avec une qualité inférieure · 480p</button></div></section></div> : null}
     {showBatteryWarning && networkDecision !== "warning" ? <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" role="presentation"><section role="alertdialog" aria-modal="true" aria-labelledby="battery-warning-title" aria-describedby="battery-warning-description" className="w-full max-w-md rounded-3xl border border-amber-200/20 bg-[#151515] p-6 shadow-2xl sm:p-8"><div className="mb-5 flex size-12 items-center justify-center rounded-2xl bg-amber-400/10 text-amber-300"><BatteryWarning className="size-6" /></div><p className="text-xs font-semibold uppercase tracking-[.2em] text-amber-300">MODE DANGER · {batteryPercent}%</p><h2 id="battery-warning-title" className="mt-2 text-xl font-semibold">Lecture suspendue pour préserver la batterie</h2><p id="battery-warning-description" className="mt-2 text-sm leading-relaxed text-white/60">{batteryNotice}</p><div className="mt-6"><button type="button" onClick={() => requestExit("/")} className="w-full rounded-xl border border-white/15 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Arrêter la lecture et retourner au catalogue</button></div></section></div> : null}
-    {showExitConfirmation ? <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" role="presentation"><section role="alertdialog" aria-modal="true" aria-labelledby="exit-confirmation-title" aria-describedby="exit-confirmation-description" className="w-full max-w-md rounded-3xl border border-white/10 bg-[#141414] p-6 shadow-2xl sm:p-8"><p className="text-xs font-semibold uppercase tracking-[.2em] text-white/45">Confirmer la sortie</p><h2 id="exit-confirmation-title" className="mt-2 text-xl font-semibold text-white">Arrêter la lecture ?</h2><p id="exit-confirmation-description" className="mt-3 text-sm leading-relaxed text-white/65">Souhaitez-vous quitter le lecteur et revenir au catalogue ? Votre progression est enregistrée.</p><div className="mt-6 grid gap-3 sm:grid-cols-2"><button type="button" autoFocus onClick={() => setShowExitConfirmation(false)} className="rounded-xl border border-white/15 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Continuer le film</button><button type="button" onClick={confirmExit} className="rounded-xl bg-[#e50914] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#f6121d]">Arrêter et quitter</button></div></section></div> : null}
+    {showExitConfirmation ? <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" role="presentation"><section role="alertdialog" aria-modal="true" aria-labelledby="exit-confirmation-title" aria-describedby="exit-confirmation-description" className="w-full max-w-md rounded-3xl border border-white/10 bg-[#141414] p-6 shadow-2xl sm:p-8"><p className="text-xs font-semibold uppercase tracking-[.2em] text-white/45">Confirmer la sortie</p><h2 id="exit-confirmation-title" className="mt-2 text-xl font-semibold text-white">{isSeriesEpisode ? "Quitter cet épisode ?" : "Arrêter la lecture ?"}</h2><p id="exit-confirmation-description" className="mt-3 text-sm leading-relaxed text-white/65">{isSeriesEpisode ? "L’épisode est en cours. Voulez-vous vraiment quitter le lecteur ? Votre progression sera conservée pour reprendre la série plus tard." : "Souhaitez-vous quitter le lecteur et revenir au catalogue ? Votre progression est enregistrée."}</p><div className="mt-6 grid gap-3 sm:grid-cols-2"><button type="button" autoFocus onClick={() => setShowExitConfirmation(false)} className="rounded-xl border border-white/15 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">{isSeriesEpisode ? "Continuer l’épisode" : "Continuer le film"}</button><button type="button" onClick={confirmExit} className="rounded-xl bg-[#e50914] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#f6121d]">{isSeriesEpisode ? "Quitter la série" : "Arrêter et quitter"}</button></div></section></div> : null}
   </div>,
     document.body,
   )
