@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import useSWR from "swr"
-import { Disc3, Headphones, Loader2, Music2, Pause, Play, Radio, SkipBack, SkipForward, Sparkles } from "lucide-react"
+import { Disc3, Headphones, Loader2, Music2, Pause, Play, Radio, SkipBack, SkipForward, Sparkles, Video } from "lucide-react"
+import Link from "next/link"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { audioStreamUrl, getItems, primaryImage, type BaseItem, type JellyfinSession } from "@/lib/jellyfin"
 
@@ -53,7 +54,7 @@ function MusicHubContent({ session }: { session: JellyfinSession }) {
         <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.25em] text-[#c09de6]"><Headphones className="size-4" />Votre espace sonore</p>
         <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">Hub musique</h1>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/55 sm:text-base">Toute votre bibliothèque audio Jellyfin, organisée pour écouter sans quitter votre univers.</p>
-        <div className="mt-6 flex flex-wrap gap-2 text-xs text-white/55"><span className="rounded-full border border-white/10 bg-white/[.05] px-3 py-1.5">{data?.tracks.length ?? 0} titres chargés</span><span className="rounded-full border border-white/10 bg-white/[.05] px-3 py-1.5">Lecture directe Jellyfin</span></div>
+        <div className="mt-6 flex flex-wrap items-center gap-2 text-xs text-white/55"><span className="rounded-full border border-white/10 bg-white/[.05] px-3 py-1.5">{data?.tracks.length ?? 0} titres chargés</span><span className="rounded-full border border-white/10 bg-white/[.05] px-3 py-1.5">Lecture directe Jellyfin</span><Link href="/music-videos" className="inline-flex min-h-10 items-center gap-2 rounded-full bg-white px-4 text-xs font-semibold text-black transition hover:scale-[1.02] hover:bg-white/90"><Video className="size-4" />Voir les clips musicaux</Link></div>
       </div>
     </section>
     <div className="mx-auto flex max-w-[1500px] flex-col gap-12 px-5 py-9 sm:px-8 lg:px-12">

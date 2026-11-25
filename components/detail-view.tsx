@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import useSWR from "swr"
 import { useEffect, useState } from "react"
 import { ArrowDown, Check, ChevronRight, Clock3, Film, Heart, Loader2, Play, Share2, Sparkles, Star, User } from "lucide-react"
@@ -277,33 +278,32 @@ function CastSection({
           const img = personImage(session.serverUrl, person, 200)
           return (
             <li key={`${person.Id}-${person.Role ?? ""}`} className="w-28 shrink-0">
-              <div className="aspect-[2/3] w-full overflow-hidden rounded-lg border border-border bg-secondary">
-                {img ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={img || "/placeholder.svg"}
-                    alt={person.Name}
-                    crossOrigin="anonymous"
-                    loading="lazy"
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                    <User className="size-8" />
-                  </div>
-                )}
-              </div>
-              <p className="mt-2 truncate text-sm font-medium" title={person.Name}>
-                {person.Name}
-              </p>
-              {person.Role ? (
-                <p
-                  className="truncate text-xs text-muted-foreground"
-                  title={person.Role}
-                >
-                  {person.Role}
+              <Link href={`/people/${encodeURIComponent(person.Id)}?name=${encodeURIComponent(person.Name)}`} className="group/person block rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">
+                <div className="aspect-[2/3] w-full overflow-hidden rounded-lg border border-border bg-secondary transition group-hover/person:border-primary/60">
+                  {img ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={img}
+                      alt={`Portrait de ${person.Name}`}
+                      crossOrigin="anonymous"
+                      loading="lazy"
+                      className="h-full w-full object-cover transition duration-300 group-hover/person:scale-105"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                      <User className="size-8" aria-hidden="true" />
+                    </div>
+                  )}
+                </div>
+                <p className="mt-2 truncate text-sm font-medium group-hover/person:text-primary" title={person.Name}>
+                  {person.Name}
                 </p>
-              ) : null}
+                {person.Role ? (
+                  <p className="truncate text-xs text-muted-foreground" title={person.Role}>
+                    {person.Role}
+                  </p>
+                ) : null}
+              </Link>
             </li>
           )
         })}

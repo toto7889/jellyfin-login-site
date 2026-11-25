@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
-import { ArrowUpRight, Play, VolumeX } from "lucide-react"
+import { ArrowUpRight, Loader2, Play, VolumeX } from "lucide-react"
 import { VideoPlayer } from "@/components/video-player"
 import {
   backdropImage,
@@ -31,6 +31,7 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
   const canPreview = item.Type === "Movie" || item.Type === "Episode" || item.Type === "Series"
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewReady, setPreviewReady] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [previewing, setPreviewing] = useState(false)
   const [previewStartSeconds, setPreviewStartSeconds] = useState(0)
   const [playerOpen, setPlayerOpen] = useState(false)
@@ -55,6 +56,7 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
   function startPreview() {
     if (!canPreview || previewing) return
     setPreviewing(true)
+    setPreviewLoading(true)
     onPreviewChange?.(true)
     const currentRequest = ++requestId.current
     hoverTimer.current = window.setTimeout(async () => {
@@ -63,7 +65,10 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
           ? await getEpisodes(session, item.Id).then((episodes) => episodes.find((episode) => (episode.UserData?.PlaybackPositionTicks ?? 0) > 0) ?? episodes[0])
           : await getItem(session, item.Id)
         if (currentRequest !== requestId.current) return
-        if (!resolvedTarget || resolvedTarget.Type === "Series") return
+        if (!resolvedTarget || resolvedTarget.Type === "Series") {
+          setPreviewLoading(false)
+          return
+        }
         setCurrentItem(resolvedTarget)
         const latestTicks = resolvedTarget.UserData?.PlaybackPositionTicks ?? 0
         setPreviewReady(false)
@@ -72,7 +77,10 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
         url.searchParams.set("static", "true")
         setPreviewUrl(url.toString())
       } catch {
-        if (currentRequest === requestId.current) setCurrentItem(item)
+        if (currentRequest === requestId.current) {
+          setCurrentItem(item)
+          setPreviewLoading(false)
+        }
       }
     }, 350)
   }
@@ -102,6 +110,7 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
     if (hoverTimer.current) window.clearTimeout(hoverTimer.current)
     hoverTimer.current = null
     setPreviewReady(false)
+    setPreviewLoading(false)
     setPreviewing(false)
     setPreviewUrl(null)
     onPreviewChange?.(false)
@@ -114,8 +123,9 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
           // eslint-disable-next-line @next/next/no-img-element
           <img src={img} alt={item.Name} crossOrigin="anonymous" loading="lazy" className={`absolute inset-0 size-full object-cover transition-[opacity,transform] duration-500 ease-out group-hover:scale-105 ${previewReady ? "opacity-0" : "opacity-100"}`} />
         ) : <div className="absolute inset-0 flex items-center justify-center p-3 text-center text-sm text-muted-foreground">{item.Name}</div>}
-        {previewUrl ? <video ref={previewVideo} src={previewUrl} muted playsInline preload="metadata" aria-label={`Aperçu vidéo de ${item.Name}`} onLoadedMetadata={(event) => { const video = event.currentTarget; if (previewStartSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = Math.min(previewStartSeconds, Math.max(0, video.duration - 1)); void video.play().then(() => setPreviewReady(true)).catch(() => undefined) }} onTimeUpdate={(event) => { if (event.currentTarget.currentTime >= previewStartSeconds + 12) event.currentTarget.pause() }} className={`absolute inset-0 size-full object-cover transition-opacity duration-500 ${previewReady ? "opacity-100" : "opacity-0"}`} /> : null}
+        {previewUrl ? <video ref={previewVideo} src={previewUrl} muted playsInline preload="metadata" aria-label={`Aperçu vidéo de ${item.Name}`} onLoadedMetadata={(event) => { const video = event.currentTarget; if (previewStartSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = Math.min(previewStartSeconds, Math.max(0, video.duration - 1)); void video.play().then(() => { setPreviewReady(true); setPreviewLoading(false) }).catch(() => setPreviewLoading(false)) }} onTimeUpdate={(event) => { if (event.currentTarget.currentTime >= previewStartSeconds + 12) event.currentTarget.pause() }} className={`absolute inset-0 size-full object-cover transition-opacity duration-500 ${previewReady ? "opacity-100" : "opacity-0"}`} /> : null}
         {previewReady ? <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/20" /> : null}
+        {previewLoading ? <span role="status" className="absolute left-3 top-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-[11px] font-medium text-white/90 backdrop-blur"><Loader2 className="size-3.5 animate-spin" />Chargement de l’aperçu</span> : null}
         <div className="media-card-actions absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3 text-center opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
           <p className="text-xs font-semibold text-white drop-shadow">{canPreview ? hasStarted ? `Vous avez déjà commencé ${item.Type === "Series" ? "cette série" : item.Type === "Episode" ? "cet épisode" : "ce film"}` : `Aperçu ${item.Type === "Series" ? "de la série" : item.Type === "Episode" ? "de l’épisode" : "du film"}` : "Découvrez les saisons et les épisodes"}</p>
           <div className="flex w-full items-center justify-center gap-2">

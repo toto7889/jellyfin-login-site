@@ -136,7 +136,7 @@ export function LoginForm() {
           </section>
         </div>
       </main>
-      {navigating ? <div role="status" aria-live="polite" aria-label="Connexion réussie, ouverture de votre médiathèque" className="login-transition"><div className="login-transition__card"><span className="login-transition__mark"><Play className="size-7 fill-current" /></span><p className="text-3xl font-black tracking-[-.08em]">JFLX</p><h2 className="text-lg font-semibold">Bienvenue, {username.trim()}</h2><p className="text-sm text-white/55">Préparation de votre espace multimédia…</p><div className="login-transition__track"><span /></div><div className="flex items-center gap-2 text-xs text-white/40"><Loader2 className="size-3.5 animate-spin" />Connexion sécurisée à votre bibliothèque</div></div></div> : null}
+      {loading || navigating ? <div role="status" aria-live="polite" aria-label={loading ? "Connexion à Jellyfin en cours" : "Connexion réussie, ouverture de votre médiathèque"} className="login-transition"><div className="login-transition__card"><span className="login-transition__mark"><Play className="size-7 fill-current" /></span><p className="text-3xl font-black tracking-[-.08em]">JFLX</p><h2 className="text-lg font-semibold">{loading ? "Connexion sécurisée" : `Bienvenue, ${username.trim()}`}</h2><p className="text-sm text-white/55">{loading ? "Vérification de vos identifiants auprès de votre bibliothèque…" : "Préparation de votre espace multimédia…"}</p><div className="login-transition__track"><span /></div><div className="flex items-center gap-2 text-xs text-white/40"><Loader2 className="size-3.5 animate-spin" />{loading ? "Connexion à Jellyfin en cours" : "Ouverture de votre bibliothèque"}</div></div></div> : null}
     </>
   )
 }

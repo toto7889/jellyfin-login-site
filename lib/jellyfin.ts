@@ -459,6 +459,32 @@ export function personImage(
   })
 }
 
+export async function getPerson(session: JellyfinSession, name: string): Promise<BaseItem> {
+  const params = new URLSearchParams({
+    userId: session.userId,
+    Fields: "Overview,ProductionYear,PremiereDate,EndDate,ProviderIds",
+  })
+  return apiFetch<BaseItem>(session, `/Persons/${encodeURIComponent(name)}?${params.toString()}`)
+}
+
+export async function getItemsByPerson(session: JellyfinSession, personId: string): Promise<BaseItem[]> {
+  const params = new URLSearchParams({
+    Recursive: "true",
+    PersonIds: personId,
+    IncludeItemTypes: "Movie,Series,Episode,MusicVideo",
+    Fields: "ProductionYear,Overview,Genres,CommunityRating,OfficialRating,UserData,RunTimeTicks,PrimaryImageAspectRatio,People",
+    SortBy: "ProductionYear,SortName",
+    SortOrder: "Descending,Ascending",
+    Limit: "60",
+  })
+  const data = await apiFetch<ItemsResponse>(session, `/Users/${encodeURIComponent(session.userId)}/Items?${params.toString()}`)
+  return data.Items ?? []
+}
+
+export async function getCollections(session: JellyfinSession): Promise<BaseItem[]> {
+  return getItems(session, { includeItemTypes: "BoxSet", recursive: true, sortBy: "SortName", limit: 200 })
+}
+
 // ---- Live TV ----
 
 export async function getLiveTvChannels(

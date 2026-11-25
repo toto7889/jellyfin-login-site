@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import useSWR from "swr"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { CalendarDays, ChevronRight, Clock3, Loader2, Play, Radio, Search, Tv } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { VideoPlayer } from "@/components/video-player"
@@ -20,7 +20,19 @@ export function TvView() {
 function TvContent({ session }: { session: JellyfinSession }) {
   const [playing, setPlaying] = useState<PlayTarget | null>(null)
   const [previewChannel, setPreviewChannel] = useState<string | null>(null)
+  const [livePreviewUrl, setLivePreviewUrl] = useState<string | null>(null)
   const [channelQuery, setChannelQuery] = useState("")
+  const previewTimer = useRef<number | null>(null)
+  const activePreviewChannel = useRef<string | null>(null)
+  const activePreviewStream = useRef<{ channelId: string; url: string } | null>(null)
+
+  useEffect(() => () => {
+    activePreviewChannel.current = null
+    if (previewTimer.current != null) window.clearTimeout(previewTimer.current)
+    if (activePreviewStream.current) {
+      void closeLiveTvStream(session, activePreviewStream.current.url).catch(() => undefined)
+    }
+  }, [session])
 
   const { data, error, isLoading } = useSWR(
     ["livetv", session.userId],
@@ -40,12 +52,6 @@ function TvContent({ session }: { session: JellyfinSession }) {
     { refreshInterval: 60_000, revalidateOnFocus: true, dedupingInterval: 120_000, keepPreviousData: true },
   )
 
-  const { data: livePreviewUrl } = useSWR(
-    previewChannel ? ["live-preview", session.userId, previewChannel] : null,
-    () => getLiveTvStreamUrl(session, previewChannel!),
-    { revalidateOnFocus: false, shouldRetryOnError: false },
-  )
-
   const programsByChannel = useMemo(() => {
     const byChannel = new Map<string, BaseItem[]>()
     for (const program of data?.programs ?? []) {
@@ -63,8 +69,38 @@ function TvContent({ session }: { session: JellyfinSession }) {
   }, [channelQuery, data?.channels])
 
   function stopPreview(channelId: string) {
-    if (previewChannel === channelId && livePreviewUrl) void closeLiveTvStream(session, livePreviewUrl).catch(() => undefined)
+    if (activePreviewChannel.current !== channelId) return
+    activePreviewChannel.current = null
+    if (previewTimer.current != null) window.clearTimeout(previewTimer.current)
+    previewTimer.current = null
+    const stream = activePreviewStream.current
+    activePreviewStream.current = null
+    if (stream?.channelId === channelId) void closeLiveTvStream(session, stream.url).catch(() => undefined)
+    setLivePreviewUrl(null)
     setPreviewChannel((active) => active === channelId ? null : active)
+  }
+
+  function startPreview(channelId: string) {
+    if (activePreviewChannel.current === channelId) return
+    if (activePreviewChannel.current) stopPreview(activePreviewChannel.current)
+    activePreviewChannel.current = channelId
+    setPreviewChannel(channelId)
+    previewTimer.current = window.setTimeout(() => {
+      previewTimer.current = null
+      void getLiveTvStreamUrl(session, channelId).then(async (url) => {
+        if (activePreviewChannel.current !== channelId) {
+          await closeLiveTvStream(session, url).catch(() => undefined)
+          return
+        }
+        activePreviewStream.current = { channelId, url }
+        setLivePreviewUrl(url)
+      }).catch(() => {
+        if (activePreviewChannel.current === channelId) {
+          activePreviewChannel.current = null
+          setPreviewChannel(null)
+        }
+      })
+    }, 320)
   }
 
   function startWatching(channel: BaseItem, current?: BaseItem) {
@@ -107,8 +143,8 @@ function TvContent({ session }: { session: JellyfinSession }) {
         const logo = primaryImage(session.serverUrl, channel, 120)
         const progress = current ? programProgress(current.StartDate, current.EndDate) : 0
         const isPreviewing = previewChannel === channel.Id
-        return <article key={channel.Id} className="group overflow-hidden rounded-2xl border border-white/[.09] bg-[#111216] transition duration-300 hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_16px_40px_rgba(0,0,0,.28)] animate-in fade-in slide-in-from-bottom-2" style={{ animationDelay: `${Math.min(index * 45, 350)}ms` }} onMouseEnter={() => setPreviewChannel(channel.Id)} onMouseLeave={() => stopPreview(channel.Id)} onFocus={() => setPreviewChannel(channel.Id)} onBlur={() => stopPreview(channel.Id)}>
-          <div className="relative aspect-video overflow-hidden bg-[#1b1c22]">{poster ? <img src={poster} alt="" crossOrigin="anonymous" loading="lazy" className={`absolute inset-0 size-full object-cover transition duration-700 group-hover:scale-105 ${isPreviewing && livePreviewUrl ? "opacity-0" : "opacity-70"}`} /> : null}{isPreviewing && livePreviewUrl ? <video key={channel.Id} src={livePreviewUrl} autoPlay muted playsInline aria-label={`Aperçu en direct de ${channel.Name}`} className="absolute inset-0 size-full object-cover" onError={() => setPreviewChannel((active) => active === channel.Id ? null : active)} /> : null}<div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/15 to-black/20" /><div className="absolute inset-x-0 top-0 flex items-start justify-between p-3"><div className="flex items-center gap-2 rounded-full border border-white/15 bg-black/45 px-2.5 py-1.5 backdrop-blur"><span className="size-1.5 animate-pulse rounded-full bg-[#ff4952]" /><span className="text-[10px] font-bold uppercase tracking-wider">Direct</span></div><span className="rounded-full bg-black/45 px-2.5 py-1.5 text-[10px] text-white/75 backdrop-blur">{channel.ChannelNumber ? `CH ${channel.ChannelNumber}` : "LIVE TV"}</span></div><button type="button" onClick={() => startWatching(channel, current)} aria-label={`Regarder ${channel.Name}${current?.Name ? ` : ${current.Name}` : ""}`} className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"><span className="flex size-14 items-center justify-center rounded-full bg-white text-black shadow-xl transition-transform hover:scale-110"><Play className="ml-0.5 size-5 fill-current" /></span></button><div className="absolute inset-x-4 bottom-3 flex items-center gap-2"><div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/20 bg-black/40">{logo ? <img src={logo} alt="" loading="lazy" className="size-full object-contain p-1" /> : <Tv className="size-4" />}</div><p className="truncate text-sm font-semibold">{channel.Name}</p></div></div>
+        return <article key={channel.Id} className="group overflow-hidden rounded-2xl border border-white/[.09] bg-[#111216] transition duration-300 hover:-translate-y-1 hover:border-white/20 hover:shadow-[0_16px_40px_rgba(0,0,0,.28)] animate-in fade-in slide-in-from-bottom-2" style={{ animationDelay: `${Math.min(index * 45, 350)}ms` }} onMouseEnter={() => startPreview(channel.Id)} onMouseLeave={() => stopPreview(channel.Id)} onFocus={() => startPreview(channel.Id)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) stopPreview(channel.Id) }}>
+          <div className="relative aspect-video overflow-hidden bg-[#1b1c22]">{poster ? <img src={poster} alt="" crossOrigin="anonymous" loading="lazy" className={`absolute inset-0 size-full object-cover transition duration-700 group-hover:scale-105 ${isPreviewing && livePreviewUrl ? "opacity-0" : "opacity-70"}`} /> : null}{isPreviewing && livePreviewUrl ? <video key={channel.Id} src={livePreviewUrl} autoPlay muted playsInline aria-label={`Aperçu en direct de ${channel.Name}`} className="absolute inset-0 size-full object-cover" onError={() => stopPreview(channel.Id)} /> : null}<div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/15 to-black/20" /><div className="absolute inset-x-0 top-0 flex items-start justify-between p-3"><div className="flex items-center gap-2 rounded-full border border-white/15 bg-black/45 px-2.5 py-1.5 backdrop-blur"><span className="size-1.5 animate-pulse rounded-full bg-[#ff4952]" /><span className="text-[10px] font-bold uppercase tracking-wider">Direct</span></div><span className="rounded-full bg-black/45 px-2.5 py-1.5 text-[10px] text-white/75 backdrop-blur">{channel.ChannelNumber ? `CH ${channel.ChannelNumber}` : "LIVE TV"}</span></div><button type="button" onClick={() => startWatching(channel, current)} aria-label={`Regarder ${channel.Name}${current?.Name ? ` : ${current.Name}` : ""}`} className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"><span className="flex size-14 items-center justify-center rounded-full bg-white text-black shadow-xl transition-transform hover:scale-110"><Play className="ml-0.5 size-5 fill-current" /></span></button><div className="absolute inset-x-4 bottom-3 flex items-center gap-2"><div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/20 bg-black/40">{logo ? <img src={logo} alt="" loading="lazy" className="size-full object-contain p-1" /> : <Tv className="size-4" />}</div><p className="truncate text-sm font-semibold">{channel.Name}</p></div></div>
           <div className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#ff6c73]">En cours</p><h3 className="mt-1 truncate text-base font-semibold">{current?.Name ?? "Programme indisponible"}</h3>{current?.EpisodeTitle ? <p className="mt-1 truncate text-xs text-white/50">{current.EpisodeTitle}</p> : null}</div>{current?.StartDate && current.EndDate ? <span className="shrink-0 pt-1 text-[10px] text-white/45">{formatClock(current.StartDate)}</span> : null}</div>{current?.StartDate && current.EndDate ? <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[#e50914] transition-[width] duration-700" style={{ width: `${progress}%` }} /></div> : null}{upcoming ? <div className="mt-3 flex items-center gap-2 border-t border-white/[.07] pt-3"><Clock3 className="size-3.5 shrink-0 text-white/35" /><p className="truncate text-xs text-white/55">Ensuite · <span className="text-white/75">{upcoming.Name}</span></p><span className="ml-auto shrink-0 text-[10px] text-white/40">{formatClock(upcoming.StartDate)}</span></div> : null}</div>
         </article>
       })}</div> : <p className="rounded-2xl border border-dashed border-white/15 py-12 text-center text-sm text-white/50">Aucune chaîne ne correspond à cette recherche.</p>}

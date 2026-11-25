@@ -1,9 +1,10 @@
 "use client"
 
 import Link from "next/link"
+import { createPortal } from "react-dom"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { Suspense, useEffect, useState } from "react"
-import { CalendarDays, Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, Fingerprint, Ban, GitBranch, Cast, Clapperboard, Film, Music2, MonitorPlay } from "lucide-react"
+import { Suspense, useCallback, useEffect, useState } from "react"
+import { CalendarDays, Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, GitBranch, Cast, Clapperboard, Film, Layers3, Music2, MonitorPlay } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -18,14 +19,24 @@ function AppHeaderContent() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmLogout, setConfirmLogout] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [closingLogout, setClosingLogout] = useState(false)
+
+  const closeLogout = useCallback(() => {
+    if (loggingOut) return
+    setClosingLogout(true)
+    window.setTimeout(() => {
+      setConfirmLogout(false)
+      setClosingLogout(false)
+    }, 260)
+  }, [loggingOut])
 
   useEffect(() => setQuery(searchParams.get("q") ?? ""), [searchParams])
   useEffect(() => {
     if (!confirmLogout) return
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape" && !loggingOut) setConfirmLogout(false) }
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") closeLogout() }
     window.addEventListener("keydown", closeOnEscape)
     return () => window.removeEventListener("keydown", closeOnEscape)
-  }, [confirmLogout, loggingOut])
+  }, [confirmLogout, closeLogout])
   function onSearch(e: React.FormEvent) {
     e.preventDefault()
     const q = query.trim()
@@ -50,11 +61,9 @@ function AppHeaderContent() {
             <Link href="/films" aria-current={pathname.startsWith("/films") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/films") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Film className="mr-1.5 inline size-4" />Hub Films</Link>
             <Link href="/series" aria-current={pathname.startsWith("/series") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/series") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Clapperboard className="mr-1.5 inline size-4" />Hub Séries</Link>
             <Link href="/guide-tv" aria-current={pathname.startsWith("/guide-tv") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/guide-tv") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><CalendarDays className="mr-1.5 inline size-4" />Guide TV</Link>
+            <Link href="/collections" aria-current={pathname.startsWith("/collections") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/collections") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Layers3 className="mr-1.5 inline size-4" />Collections</Link>
             <Link href="/music" aria-current={pathname.startsWith("/music") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/music") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Music2 className="mr-1.5 inline size-4" />Musique</Link>
-            <Link href="/genres" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/genres") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Clapperboard className="mr-1.5 inline size-4" />Genres</Link>
             <Link href="/cast" aria-current={pathname.startsWith("/cast") ? "page" : undefined} className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/cast") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Cast className="mr-1.5 inline size-4" />Caster</Link>
-            <Link href="/favorites" className="rounded-md px-3 py-2 text-sm text-white/60 transition hover:text-white"><Heart className="mr-1.5 inline size-4" />Favoris</Link>
-            <Link href="/verification" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/verification" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Fingerprint className="mr-1.5 inline size-4" />Vérification</Link><Link href="/ip" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/ip" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><Ban className="mr-1.5 inline size-4" />Mon IP</Link><Link href="/admin/ip" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/admin") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><ShieldCheck className="mr-1.5 inline size-4" />Admin</Link><Link href="/securite" className={`rounded-md px-3 py-2 text-sm transition ${pathname === "/securite" ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><ShieldCheck className="mr-1.5 inline size-4" />Sécurité</Link><Link href="/releases" className={`rounded-md px-3 py-2 text-sm transition ${pathname.startsWith("/releases") ? "font-semibold text-white" : "text-white/60 hover:text-white"}`}><GitBranch className="mr-1.5 inline size-4" />Releases AI</Link>
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <form onSubmit={onSearch} className={`${searchOpen ? "w-[min(45vw,330px)]" : "w-0 md:w-[min(24vw,230px)]"} relative overflow-hidden transition-all duration-300`}>
@@ -73,10 +82,14 @@ function AppHeaderContent() {
                   <Link role="menuitem" href="/favorites" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Heart className="size-4" /> Mes favoris</Link>
                   <Link role="menuitem" href="/settings" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Settings className="size-4" /> Paramètres du lecteur</Link>
                   <Link role="menuitem" href="/music" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Music2 className="size-4" /> Hub musique</Link>
+                  <Link role="menuitem" href="/music-videos" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Film className="size-4" /> Clips musicaux</Link>
+                  <Link role="menuitem" href="/guide-tv" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><CalendarDays className="size-4" /> Guide TV</Link>
+                  <Link role="menuitem" href="/collections" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Layers3 className="size-4" /> Collections</Link>
                   <Link role="menuitem" href="/genres" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Clapperboard className="size-4" /> Explorer les genres</Link>
                   <Link role="menuitem" href="/cast" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Cast className="size-4" /> Distribution</Link>
                   <Link role="menuitem" href="/securite" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><ShieldCheck className="size-4" /> Sécurité</Link>
                   <Link role="menuitem" href="/releases" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><GitBranch className="size-4" /> Nouveautés</Link>
+                  <Link role="menuitem" href="/a-propos" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><MonitorPlay className="size-4" /> À propos de JFLX</Link>
                   <div className="px-3 py-3">
                     <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/45"><Settings className="size-3" /> Interface</p>
                     <button type="button" onClick={() => updatePreferences({ tvMode: !preferences.tvMode })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10"><span className="flex items-center gap-2"><MonitorPlay className="size-4" /> Mode TV</span>{preferences.tvMode ? <Check className="size-4 text-[#e50914]" /> : null}</button>
@@ -91,19 +104,15 @@ function AppHeaderContent() {
         </div>
       </header>
       <nav aria-label="Navigation mobile" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#090909]/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
-        <div className="mx-auto grid max-w-3xl grid-cols-9">
+        <div className="mx-auto grid max-w-3xl grid-cols-5">
           <MobileNavLink href="/" active={pathname === "/"} label="Accueil" icon={<Home />} />
           <MobileNavLink href="/tv" active={pathname === "/tv"} label="Hub TV" icon={<Tv />} />
           <MobileNavLink href="/films" active={pathname.startsWith("/films")} label="Films" icon={<Film />} />
           <MobileNavLink href="/series" active={pathname.startsWith("/series")} label="Séries" icon={<Clapperboard />} />
-          <MobileNavLink href="/guide-tv" active={pathname.startsWith("/guide-tv")} label="Guide TV" icon={<CalendarDays />} />
-          <MobileNavLink href="/favorites" active={pathname.startsWith("/favorites")} label="Favoris" icon={<Heart />} />
           <MobileNavLink href="/music" active={pathname.startsWith("/music")} label="Musique" icon={<Music2 />} />
-          <MobileNavLink href="/search" active={pathname.startsWith("/search")} label="Recherche" icon={<Search />} />
-          <MobileNavLink href="/settings" active={pathname.startsWith("/settings")} label="Réglages" icon={<Settings />} />
         </div>
       </nav>
-      {confirmLogout ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-in fade-in duration-200" onMouseDown={(event) => { if (event.target === event.currentTarget && !loggingOut) setConfirmLogout(false) }}><div role="alertdialog" aria-modal="true" aria-labelledby="logout-title" aria-describedby="logout-description" className={`w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#141414] shadow-[0_24px_100px_rgba(0,0,0,.65)] animate-in zoom-in-95 duration-300 ${loggingOut ? "scale-95 opacity-0 transition-all duration-700" : ""}`}><div className="h-1 bg-gradient-to-r from-[#e50914] via-[#f04b50] to-transparent" /><div className="p-6 sm:p-8"><div className="flex items-start gap-4"><div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[#e50914]/10 text-[#ff6b70]"><LogOut className="size-5" /></div><div className="min-w-0 flex-1"><p className="text-xs font-semibold uppercase tracking-[.18em] text-white/40">Session JFLX</p><h2 id="logout-title" className="mt-1 text-xl font-semibold text-white">Quitter votre compte ?</h2><p id="logout-description" className="mt-2 text-sm leading-relaxed text-white/55">Vous êtes connecté en tant que <strong className="font-medium text-white/85">{session?.userName ?? "utilisateur"}</strong>. La session sera supprimée de cet appareil.</p></div><button type="button" onClick={() => setConfirmLogout(false)} className="rounded-full p-2 text-white/50 transition hover:bg-white/10 hover:text-white" aria-label="Fermer la confirmation" disabled={loggingOut}><X className="size-5" /></button></div><div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button variant="ghost" onClick={() => setConfirmLogout(false)} disabled={loggingOut} className="text-white/70 hover:bg-white/10 hover:text-white">Garder ma session</Button><Button onClick={doLogout} disabled={loggingOut} className="min-w-36 bg-[#e50914] text-white shadow-[0_0_20px_rgba(229,9,20,.2)] transition hover:bg-[#f6121d]">{loggingOut ? <span className="flex items-center gap-2"><span className="size-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />Déconnexion…</span> : "Se déconnecter"}</Button></div>{loggingOut ? <div className="mt-4 h-1 overflow-hidden rounded-full bg-white/10"><div className="h-full w-full origin-left animate-pulse bg-[#e50914]" /></div> : null}</div></div></div> : null}
+      {confirmLogout ? createPortal(<div className={`logout-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md ${closingLogout ? "is-closing" : ""}`} onMouseDown={(event) => { if (event.target === event.currentTarget) closeLogout() }}><div role="alertdialog" aria-modal="true" aria-labelledby="logout-title" aria-describedby="logout-description" className={`logout-dialog w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#141414] shadow-[0_24px_100px_rgba(0,0,0,.65)] ${closingLogout ? "is-closing" : ""} ${loggingOut ? "is-logging-out" : ""}`}><div className="logout-dialog__accent" /><div className="p-6 sm:p-8"><div className="flex items-start gap-4"><div className="logout-dialog__icon flex size-12 shrink-0 items-center justify-center rounded-2xl"><LogOut className="size-5" /></div><div className="min-w-0 flex-1"><p className="text-xs font-semibold uppercase tracking-[.18em] text-white/40">Session JFLX</p><h2 id="logout-title" className="mt-1 text-xl font-semibold text-white">Prendre une pause ?</h2><p id="logout-description" className="mt-2 text-sm leading-relaxed text-white/55">Vous êtes connecté en tant que <strong className="font-medium text-white/85">{session?.userName ?? "utilisateur"}</strong>. En gardant votre session, vous pourrez reprendre votre lecture immédiatement.</p></div><button type="button" onClick={closeLogout} className="rounded-full p-2 text-white/50 transition hover:bg-white/10 hover:text-white" aria-label="Fermer la confirmation" disabled={loggingOut}><X className="size-5" /></button></div><div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Button autoFocus variant="ghost" onClick={closeLogout} disabled={loggingOut} className="logout-keep-button text-white/70 hover:bg-white/10 hover:text-white">Garder ma session</Button><Button onClick={doLogout} disabled={loggingOut} className="logout-confirm-button min-w-36 bg-[#e50914] text-white shadow-[0_0_20px_rgba(229,9,20,.2)] transition hover:bg-[#f6121d]">{loggingOut ? <span className="flex items-center gap-2"><span className="size-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />Déconnexion…</span> : "Se déconnecter"}</Button></div>{loggingOut ? <div className="logout-progress mt-5" role="progressbar" aria-label="Déconnexion de Jellyfin en cours"><span className="logout-progress__bar" /></div> : null}</div></div></div>, document.body) : null}
     </>
   )
 }
