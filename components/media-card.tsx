@@ -2,13 +2,14 @@
 
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
+import Hls from "hls.js"
 import { ArrowUpRight, Loader2, Play, VolumeX } from "lucide-react"
 import { VideoPlayer } from "@/components/video-player"
 import {
   backdropImage,
   directStreamUrl,
   getEpisodes,
-  getItem,
+  streamUrl,
   type BaseItem,
   primaryImage,
   type JellyfinSession,
@@ -38,10 +39,13 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
   const hoverTimer = useRef<number | null>(null)
   const requestId = useRef(0)
   const previewVideo = useRef<HTMLVideoElement>(null)
+  const previewHls = useRef<Hls | null>(null)
+  const previewFallbackAttempted = useRef(false)
 
   useEffect(() => () => {
     if (hoverTimer.current) window.clearTimeout(hoverTimer.current)
     previewVideo.current?.pause()
+    previewHls.current?.destroy()
   }, [])
 
   const subtitle =
@@ -57,13 +61,14 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
     if (!canPreview || previewing) return
     setPreviewing(true)
     setPreviewLoading(true)
+    previewFallbackAttempted.current = false
     onPreviewChange?.(true)
     const currentRequest = ++requestId.current
     hoverTimer.current = window.setTimeout(async () => {
       try {
         const resolvedTarget = item.Type === "Series"
           ? await getEpisodes(session, item.Id).then((episodes) => episodes.find((episode) => (episode.UserData?.PlaybackPositionTicks ?? 0) > 0) ?? episodes[0])
-          : await getItem(session, item.Id)
+          : item
         if (currentRequest !== requestId.current) return
         if (!resolvedTarget || resolvedTarget.Type === "Series") {
           setPreviewLoading(false)
@@ -73,7 +78,7 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
         const latestTicks = resolvedTarget.UserData?.PlaybackPositionTicks ?? 0
         setPreviewReady(false)
         setPreviewStartSeconds(latestTicks / 10_000_000)
-        const url = new URL(directStreamUrl(session, resolvedTarget.Id, { startTimeTicks: latestTicks }))
+        const url = new URL(directStreamUrl(session, resolvedTarget.Id))
         url.searchParams.set("static", "true")
         setPreviewUrl(url.toString())
       } catch {
@@ -105,6 +110,33 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
     }
   }
 
+  function startPreviewFallback() {
+    const video = previewVideo.current
+    if (!video || previewFallbackAttempted.current) return
+    previewFallbackAttempted.current = true
+    const fallbackUrl = streamUrl(session, currentItem.Id)
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = fallbackUrl
+      video.load()
+      return
+    }
+    if (!Hls.isSupported()) {
+      setPreviewLoading(false)
+      return
+    }
+    const hls = new Hls({ enableWorker: true, lowLatencyMode: true, maxBufferLength: 12, backBufferLength: 12 })
+    previewHls.current = hls
+    hls.on(Hls.Events.ERROR, (_event, data) => {
+      if (data.fatal) {
+        setPreviewLoading(false)
+        hls.destroy()
+        if (previewHls.current === hls) previewHls.current = null
+      }
+    })
+    hls.loadSource(fallbackUrl)
+    hls.attachMedia(video)
+  }
+
   function stopPreview() {
     requestId.current += 1
     if (hoverTimer.current) window.clearTimeout(hoverTimer.current)
@@ -112,6 +144,9 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
     setPreviewReady(false)
     setPreviewLoading(false)
     setPreviewing(false)
+    previewHls.current?.destroy()
+    previewHls.current = null
+    previewFallbackAttempted.current = false
     setPreviewUrl(null)
     onPreviewChange?.(false)
   }
@@ -123,7 +158,7 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
           // eslint-disable-next-line @next/next/no-img-element
           <img src={img} alt={item.Name} crossOrigin="anonymous" loading="lazy" className={`absolute inset-0 size-full object-cover transition-[opacity,transform] duration-500 ease-out group-hover:scale-105 ${previewReady ? "opacity-0" : "opacity-100"}`} />
         ) : <div className="absolute inset-0 flex items-center justify-center p-3 text-center text-sm text-muted-foreground">{item.Name}</div>}
-        {previewUrl ? <video ref={previewVideo} src={previewUrl} muted playsInline preload="metadata" aria-label={`Aperçu vidéo de ${item.Name}`} onLoadedMetadata={(event) => { const video = event.currentTarget; if (previewStartSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = Math.min(previewStartSeconds, Math.max(0, video.duration - 1)); void video.play().then(() => { setPreviewReady(true); setPreviewLoading(false) }).catch(() => setPreviewLoading(false)) }} onTimeUpdate={(event) => { if (event.currentTarget.currentTime >= previewStartSeconds + 12) event.currentTarget.pause() }} className={`absolute inset-0 size-full object-cover transition-opacity duration-500 ${previewReady ? "opacity-100" : "opacity-0"}`} /> : null}
+        {previewUrl ? <video ref={previewVideo} src={previewUrl} muted playsInline preload="metadata" aria-label={`Aperçu vidéo de ${item.Name}`} onLoadedMetadata={(event) => { const video = event.currentTarget; if (previewStartSeconds > 0 && Number.isFinite(video.duration)) video.currentTime = Math.min(previewStartSeconds, Math.max(0, video.duration - 1)); void video.play().then(() => { setPreviewReady(true); setPreviewLoading(false) }).catch(() => setPreviewLoading(false)) }} onTimeUpdate={(event) => { if (event.currentTarget.currentTime >= previewStartSeconds + 12) event.currentTarget.pause() }} onError={startPreviewFallback} className={`absolute inset-0 size-full object-cover transition-opacity duration-500 ${previewReady ? "opacity-100" : "opacity-0"}`} /> : null}
         {previewReady ? <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-black/20" /> : null}
         {previewLoading ? <span role="status" className="absolute left-3 top-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-[11px] font-medium text-white/90 backdrop-blur"><Loader2 className="size-3.5 animate-spin" />Chargement de l’aperçu</span> : null}
         <div className="media-card-actions absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 p-3 text-center opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">

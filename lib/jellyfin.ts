@@ -519,13 +519,33 @@ export async function getLiveTvStreamUrl(
   session: JellyfinSession,
   channelId: string,
 ): Promise<string> {
-  const playback = await apiFetch<{ MediaSources?: Array<{ LiveStreamId?: string; Container?: string }> }>(
+  const playback = await apiFetch<{ MediaSources?: Array<{ LiveStreamId?: string; Container?: string; TranscodingUrl?: string }> }>(
     session,
     `/Items/${encodeURIComponent(channelId)}/PlaybackInfo?userId=${encodeURIComponent(session.userId)}&autoOpenLiveStream=true`,
-    { method: "POST", body: JSON.stringify({ UserId: session.userId, AutoOpenLiveStream: true }) },
+    {
+      method: "POST",
+      body: JSON.stringify({
+        UserId: session.userId,
+        AutoOpenLiveStream: true,
+        DeviceProfile: {
+          MaxStreamingBitrate: 20_000_000,
+          DirectPlayProfiles: [{ Container: "mp4,m4v", Type: "Video", VideoCodec: "h264", AudioCodec: "aac,mp3" }],
+          TranscodingProfiles: [{ Container: "ts", Type: "Video", Context: "Streaming", Protocol: "hls", VideoCodec: "h264", AudioCodec: "aac", MaxAudioChannels: "2", MinSegments: 2, BreakOnNonKeyFrames: true }],
+        },
+      }),
+    },
   )
   const source = playback.MediaSources?.find((media) => media.LiveStreamId)
   if (!source?.LiveStreamId) throw new Error("Le serveur Jellyfin n’a pas ouvert de flux pour cette chaîne.")
+  if (source.TranscodingUrl) {
+    const transcodingUrl = new URL(source.TranscodingUrl, `${session.serverUrl}/`)
+    if (transcodingUrl.origin === new URL(session.serverUrl).origin) {
+      transcodingUrl.searchParams.set("api_key", session.accessToken)
+      transcodingUrl.searchParams.set("DeviceId", session.deviceId)
+      if (!transcodingUrl.searchParams.has("LiveStreamId")) transcodingUrl.searchParams.set("LiveStreamId", source.LiveStreamId)
+      return transcodingUrl.toString()
+    }
+  }
   const params = new URLSearchParams({ api_key: session.accessToken, DeviceId: session.deviceId })
   return `${session.serverUrl}/LiveTv/LiveStreamFiles/${encodeURIComponent(source.LiveStreamId)}/stream.${encodeURIComponent(source.Container || "ts")}?${params.toString()}`
 }
@@ -534,9 +554,11 @@ export async function closeLiveTvStream(
   session: JellyfinSession,
   streamUrl: string,
 ): Promise<void> {
-  const liveStreamId = new URL(streamUrl).pathname.match(/LiveStreamFiles\/([^/]+)\/stream\./)?.[1]
+  const url = new URL(streamUrl)
+  const streamFileId = url.pathname.match(/LiveStreamFiles\/([^/]+)\/stream\./)?.[1]
+  const liveStreamId = streamFileId ? decodeURIComponent(streamFileId) : url.searchParams.get("LiveStreamId")
   if (!liveStreamId) return
-  const params = new URLSearchParams({ liveStreamId: decodeURIComponent(liveStreamId) })
+  const params = new URLSearchParams({ liveStreamId })
   await apiFetch<void>(session, `/LiveStreams/Close?${params.toString()}`, { method: "POST" })
 }
 
@@ -571,15 +593,14 @@ export function audioStreamUrl(session: JellyfinSession, itemId: string): string
   return `${session.serverUrl}/Audio/${encodeURIComponent(itemId)}/stream?${params.toString()}`
 }
 
-// Returns an HLS master playlist URL that hls.js can play in any browser.
-export function streamUrl(session: JellyfinSession, itemId: string): string {
+// HLS is a compatibility path when the browser cannot play the source directly.
+export function streamUrl(session: JellyfinSession, itemId: string, options: PlaybackStreamOptions = {}): string {
   const params = new URLSearchParams({
     api_key: session.accessToken,
     userId: session.userId,
     DeviceId: session.deviceId,
     VideoCodec: "h264",
     AudioCodec: "aac",
-    AudioStreamIndex: "0",
     TranscodingMaxAudioChannels: "2",
     TranscodingProtocol: "hls",
     TranscodingContainer: "ts",
@@ -590,11 +611,15 @@ export function streamUrl(session: JellyfinSession, itemId: string): string {
     AllowVideoStreamCopy: "true",
     EnableTranscoding: "true",
     RequireNonEmptyMetadata: "false",
-    VideoBitrate: "8000000",
-    MaxWidth: "1920",
-    MaxHeight: "1080",
+    VideoBitrate: String(options.maxStreamingBitrate ?? 8_000_000),
+    MaxWidth: String(options.maxWidth ?? 1920),
+    MaxHeight: String(options.maxHeight ?? 1080),
   })
-  return `${session.serverUrl}/Videos/${itemId}/master.m3u8?${params.toString()}`
+  if (options.mediaSourceId) params.set("MediaSourceId", options.mediaSourceId)
+  if (options.playSessionId) params.set("PlaySessionId", options.playSessionId)
+  if (options.audioStreamIndex != null) params.set("AudioStreamIndex", String(options.audioStreamIndex))
+  if (options.subtitleStreamIndex != null) params.set("SubtitleStreamIndex", String(options.subtitleStreamIndex))
+  return `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/master.m3u8?${params.toString()}`
 }
 
 export type JellyfinMediaStream = {
@@ -607,13 +632,44 @@ export type JellyfinMediaStream = {
   IsExternal?: boolean
 }
 
-export async function getPlaybackStreams(session: JellyfinSession, itemId: string): Promise<JellyfinMediaStream[]> {
-  const info = await apiFetch<{ MediaSources?: Array<{ MediaStreams?: JellyfinMediaStream[] }> }>(
+export type JellyfinPlaybackSource = {
+  Id?: string
+  MediaStreams?: JellyfinMediaStream[]
+  SupportsDirectPlay?: boolean
+  SupportsDirectStream?: boolean
+  SupportsTranscoding?: boolean
+}
+
+export type JellyfinPlaybackInfo = {
+  PlaySessionId?: string
+  MediaSources?: JellyfinPlaybackSource[]
+}
+
+export async function getPlaybackInfo(
+  session: JellyfinSession,
+  itemId: string,
+  maxStreamingBitrate = 20_000_000,
+): Promise<JellyfinPlaybackInfo> {
+  return apiFetch<JellyfinPlaybackInfo>(
     session,
     `/Items/${encodeURIComponent(itemId)}/PlaybackInfo?userId=${encodeURIComponent(session.userId)}`,
-    { method: "POST", body: JSON.stringify({ UserId: session.userId, DeviceProfile: { MaxStreamingBitrate: 20000000 } }) },
+    {
+      method: "POST",
+      body: JSON.stringify({
+        UserId: session.userId,
+        DeviceProfile: {
+          MaxStreamingBitrate: maxStreamingBitrate,
+          MaxStaticBitrate: maxStreamingBitrate,
+          DirectPlayProfiles: [
+            { Container: "mp4,m4v", Type: "Video", VideoCodec: "h264", AudioCodec: "aac,mp3" },
+          ],
+          TranscodingProfiles: [
+            { Container: "ts", Type: "Video", Context: "Streaming", Protocol: "hls", VideoCodec: "h264", AudioCodec: "aac", MaxAudioChannels: "2", MinSegments: 2, BreakOnNonKeyFrames: true },
+          ],
+        },
+      }),
+    },
   )
-  return info.MediaSources?.[0]?.MediaStreams ?? []
 }
 
 export type PlaybackStreamOptions = {
@@ -622,18 +678,22 @@ export type PlaybackStreamOptions = {
   maxStreamingBitrate?: number
   maxWidth?: number
   maxHeight?: number
+  mediaSourceId?: string
+  playSessionId?: string
   startTimeTicks?: number
 }
 
 export function directStreamUrl(session: JellyfinSession, itemId: string, options: PlaybackStreamOptions = {}): string {
-  const params = new URLSearchParams({ api_key: session.accessToken, DeviceId: session.deviceId })
+  const params = new URLSearchParams({ api_key: session.accessToken, userId: session.userId, DeviceId: session.deviceId, static: "true" })
+  if (options.mediaSourceId) params.set("MediaSourceId", options.mediaSourceId)
+  if (options.playSessionId) params.set("PlaySessionId", options.playSessionId)
   if (options.audioStreamIndex != null) params.set("AudioStreamIndex", String(options.audioStreamIndex))
   if (options.subtitleStreamIndex != null) params.set("SubtitleStreamIndex", String(options.subtitleStreamIndex))
   if (options.maxStreamingBitrate) params.set("MaxStreamingBitrate", String(options.maxStreamingBitrate))
   if (options.maxWidth) params.set("MaxWidth", String(options.maxWidth))
   if (options.maxHeight) params.set("MaxHeight", String(options.maxHeight))
   if (options.startTimeTicks != null && options.startTimeTicks > 0) params.set("StartTimeTicks", String(options.startTimeTicks))
-  return `${session.serverUrl}/Videos/${itemId}/stream?${params.toString()}`
+  return `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/stream?${params.toString()}`
 }
 
 export async function getPlaybackSessions(

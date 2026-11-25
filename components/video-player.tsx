@@ -6,7 +6,7 @@ import { BatteryWarning, Captions, ChevronLeft, Heart, Home, Languages, Maximize
 import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { createPortal } from "react-dom"
 import Hls from "hls.js"
-import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackStreams, getTrickplayManifest, reportProgress, streamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
+import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackInfo, getTrickplayManifest, reportProgress, streamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
 import { useJellyfin } from "@/components/jellyfin-provider"
 
 type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; durationTicks?: number; isLive?: boolean; previewMode?: boolean; previewDurationSeconds?: number; isOpen?: boolean; onClose: () => void }
@@ -321,16 +321,20 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     let cancelled = false
     let liveStreamUrl: string | null = null
     let hlsInstance: Hls | null = null
+    let playbackInfo: Awaited<ReturnType<typeof getPlaybackInfo>> | null = null
     let compatibilityFallbackStarted = false
+    const selectedQuality = quality === "480p" ? { maxStreamingBitrate: 1_800_000, maxWidth: 854, maxHeight: 480 } : quality === "720p" ? { maxStreamingBitrate: 5_000_000, maxWidth: 1280, maxHeight: 720 } : quality === "1080p" ? { maxStreamingBitrate: 10_000_000, maxWidth: 1920, maxHeight: 1080 } : { maxStreamingBitrate: 20_000_000 }
+    const playbackSource = () => playbackInfo?.MediaSources?.find((source) => source.Id) ?? playbackInfo?.MediaSources?.[0]
     const startCompatibilityFallback = async () => {
       if (isLive || compatibilityFallbackStarted || cancelled) return
       compatibilityFallbackStarted = true
       setError(null)
-      log("Format non pris en charge en direct, conversion Jellyfin en cours")
+      log("Le navigateur a besoin d’un flux compatible, Jellyfin prépare le transcodage")
       video.pause()
       video.removeAttribute("src")
       video.load()
-      const transcodedUrl = streamUrl(session, itemId)
+      const source = playbackSource()
+      const transcodedUrl = streamUrl(session, itemId, { ...selectedQuality, mediaSourceId: source?.Id, playSessionId: playbackInfo?.PlaySessionId, audioStreamIndex: audioIndex, subtitleStreamIndex: subtitleIndex })
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = transcodedUrl
         video.load()
@@ -342,19 +346,11 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       }
       hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true, maxBufferLength: 20, backBufferLength: 30 })
       hlsInstance.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) setError("Jellyfin n’a pas pu convertir ce fichier AVI/MKV/MP4 en flux compatible.")
+        if (data.fatal) setError("Jellyfin n’a pas pu convertir ce fichier en flux compatible.")
       })
       hlsInstance.loadSource(transcodedUrl)
       hlsInstance.attachMedia(video)
     }
-    const fallbackTimer = window.setTimeout(() => {
-      if (!video.readyState && !ready && !isLive) {
-        log("Démarrage lent, activation du flux compatible")
-        void startCompatibilityFallback()
-      } else if (!video.readyState && !ready) {
-        setError("Le flux direct Jellyfin ne répond pas. Vérifiez la connexion et les permissions du serveur.")
-      }
-    }, 7000)
     const onReady = () => { log("Flux prêt à être lu"); setReady(true); setIsBuffering(false) }
     const onWaiting = () => { if (video.currentTime > 0 || playing) setIsBuffering(true) }
     const onPlaying = () => setIsBuffering(false)
@@ -389,13 +385,23 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       try {
         if (!isLive) {
           setMediaStreams([])
-          const selectedQuality = quality === "480p" ? { maxStreamingBitrate: 1800000, maxWidth: 854, maxHeight: 480 } : quality === "720p" ? { maxStreamingBitrate: 5000000, maxWidth: 1280, maxHeight: 720 } : quality === "1080p" ? { maxStreamingBitrate: 10000000, maxWidth: 1920, maxHeight: 1080 } : {}
+          try {
+            playbackInfo = await getPlaybackInfo(session, itemId, selectedQuality.maxStreamingBitrate)
+          } catch {
+            log("PlaybackInfo indisponible, tentative de lecture directe")
+          }
+          if (cancelled) return
+          const source = playbackSource()
+          setMediaStreams(source?.MediaStreams ?? [])
           video.preload = "auto"
-          video.src = directStreamUrl(session, itemId, { ...selectedQuality, audioStreamIndex: audioIndex, subtitleStreamIndex: subtitleIndex })
+          if (source && !source.SupportsDirectPlay && !source.SupportsDirectStream && source.SupportsTranscoding) {
+            log("Jellyfin recommande le transcodage pour ce média")
+            void startCompatibilityFallback()
+            return
+          }
+          log(source?.SupportsDirectPlay || source?.SupportsDirectStream ? "Lecture directe autorisée par Jellyfin" : "Tentative de lecture directe")
+          video.src = directStreamUrl(session, itemId, { ...selectedQuality, mediaSourceId: source?.Id, playSessionId: playbackInfo?.PlaySessionId, audioStreamIndex: audioIndex, subtitleStreamIndex: subtitleIndex })
           video.load()
-          void getPlaybackStreams(session, itemId).then((tracks) => {
-            if (!cancelled) setMediaStreams(tracks)
-          }).catch(() => undefined)
           return
         }
         const streamUrl = await getLiveTvStreamUrl(session, itemId)
@@ -432,7 +438,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       }
     })()
     const interval = window.setInterval(() => { if (!previewActiveRef.current && !video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
-    return () => { cancelled = true; hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); window.clearTimeout(fallbackTimer); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
+    return () => { cancelled = true; hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
   }, [session, itemId, startPositionTicks, durationTicks, retryNonce, isLive, audioIndex, subtitleIndex, quality, portalReady, networkDecision])
 
   const hoverThumbnailIndex = trickplayInfo && hoverSeekTime != null
