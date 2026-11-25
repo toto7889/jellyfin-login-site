@@ -54,31 +54,31 @@ function TvContent({ session }: { session: JellyfinSession }) {
 
   const { data, error, isLoading } = useSWR(
     ["livetv", session.userId],
-    async () => {
-      const channels = await getLiveTvChannels(session)
-      let programs: BaseItem[] = []
-      if (channels.length) {
-        try {
-          programs = await getLiveTvPrograms(session, channels.map((channel) => channel.Id))
-        } catch {
-          // Program-guide failures must not hide channels that are available to watch.
-          programs = []
-        }
-      }
-      return { channels, programs }
-    },
+    async () => ({ channels: await getLiveTvChannels(session) }),
     { refreshInterval: 60_000, revalidateOnFocus: true, dedupingInterval: 120_000, keepPreviousData: true },
+  )
+  const channelIds = useMemo(() => data?.channels.map((channel) => channel.Id) ?? [], [data?.channels])
+  const { data: programData } = useSWR(
+    channelIds.length ? ["livetv-programs", session.userId, channelIds.join(",")] : null,
+    async () => {
+      try {
+        return await getLiveTvPrograms(session, channelIds)
+      } catch {
+        return []
+      }
+    },
+    { dedupingInterval: 120_000, revalidateOnFocus: false, keepPreviousData: true },
   )
 
   const programsByChannel = useMemo(() => {
     const byChannel = new Map<string, BaseItem[]>()
-    for (const program of data?.programs ?? []) {
+    for (const program of programData ?? []) {
       const list = byChannel.get(program.ChannelId ?? "") ?? []
       list.push(program)
       byChannel.set(program.ChannelId ?? "", list)
     }
     return byChannel
-  }, [data?.programs])
+  }, [programData])
 
   const visibleChannels = useMemo(() => {
     const query = channelQuery.trim().toLocaleLowerCase("fr")

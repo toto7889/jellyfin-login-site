@@ -254,6 +254,7 @@ function DetailContent({
           language={cachedPlayback.language}
           previewMode={cachedPlayback.previewMode}
           previewDurationSeconds={cachedPlayback.previewDurationSeconds}
+          isSeriesEpisode={isSeries && !cachedPlayback.previewMode}
           isOpen={Boolean(playing)}
           onClose={() => setPlaying(null)}
         />

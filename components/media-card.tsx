@@ -179,7 +179,7 @@ export function MediaCard({ item, session, variant = "poster", onPreviewChange }
         <Link href={`/item/${item.Id}`} className="block truncate text-sm font-medium text-foreground hover:text-primary">{item.Name}</Link>
         {subtitle ? <p className="truncate text-xs text-muted-foreground">{subtitle}</p> : null}
       </div>
-      {playerOpen ? <VideoPlayer session={session} itemId={currentItem.Id} title={item.Name} subtitle={currentItem.Type === "Episode" ? currentItem.Name : undefined} backdropUrl={backdropImage(session.serverUrl, item, 1600)} startPositionTicks={currentItem.UserData?.PlaybackPositionTicks ?? 0} language={item.OriginalLanguage ?? item.Language} onClose={() => setPlayerOpen(false)} /> : null}
+      {playerOpen ? <VideoPlayer session={session} itemId={currentItem.Id} title={item.Name} subtitle={currentItem.Type === "Episode" ? currentItem.Name : undefined} backdropUrl={backdropImage(session.serverUrl, item, 1600)} startPositionTicks={currentItem.UserData?.PlaybackPositionTicks ?? 0} language={item.OriginalLanguage ?? item.Language} isSeriesEpisode={currentItem.Type === "Episode"} onClose={() => setPlayerOpen(false)} /> : null}
     </div>
   )
 }
