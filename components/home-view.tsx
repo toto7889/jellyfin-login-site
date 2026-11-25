@@ -46,7 +46,7 @@ function HomeContent({ session }: { session: JellyfinSession }) {
 
       return { resume, views: mediaViews, latestByView }
     },
-    { dedupingInterval: 60_000, revalidateOnFocus: false, keepPreviousData: true },
+    { dedupingInterval: 5_000, revalidateOnMount: true, revalidateOnFocus: true, keepPreviousData: true },
   )
 
   if (isLoading) return <HomeSkeleton />

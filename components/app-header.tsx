@@ -4,7 +4,7 @@ import Link from "next/link"
 import { createPortal } from "react-dom"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useCallback, useEffect, useState } from "react"
-import { CalendarDays, Check, ChevronDown, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, GitBranch, Cast, Clapperboard, Film, Layers3, Music2, MonitorPlay } from "lucide-react"
+import { CalendarDays, Check, ChevronDown, Clock3, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, GitBranch, Cast, Clapperboard, Film, Layers3, Music2, MonitorPlay } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -79,6 +79,7 @@ function AppHeaderContent() {
                 <div role="menu" className="absolute right-0 top-12 max-h-[calc(100dvh-5rem)] w-64 overflow-y-auto rounded-xl border border-white/10 bg-[#191919] p-2 shadow-2xl animate-in fade-in slide-in-from-top-2">
                   <p className="px-3 py-2 text-sm font-semibold text-white">{session?.userName}</p>
                   <div className="my-1 border-t border-white/10" />
+                  <Link role="menuitem" href="/resume" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Clock3 className="size-4" /> Reprendre la lecture</Link>
                   <Link role="menuitem" href="/favorites" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Heart className="size-4" /> Mes favoris</Link>
                   <Link role="menuitem" href="/settings" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Settings className="size-4" /> Paramètres du lecteur</Link>
                   <Link role="menuitem" href="/music" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Music2 className="size-4" /> Hub musique</Link>
@@ -104,11 +105,12 @@ function AppHeaderContent() {
         </div>
       </header>
       <nav aria-label="Navigation mobile" className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#090909]/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
-        <div className="mx-auto grid max-w-3xl grid-cols-5">
+        <div className="mx-auto grid max-w-3xl grid-cols-6">
           <MobileNavLink href="/" active={pathname === "/"} label="Accueil" icon={<Home />} />
           <MobileNavLink href="/tv" active={pathname === "/tv"} label="Hub TV" icon={<Tv />} />
           <MobileNavLink href="/films" active={pathname.startsWith("/films")} label="Films" icon={<Film />} />
           <MobileNavLink href="/series" active={pathname.startsWith("/series")} label="Séries" icon={<Clapperboard />} />
+          <MobileNavLink href="/resume" active={pathname.startsWith("/resume")} label="Reprise" icon={<Clock3 />} />
           <MobileNavLink href="/music" active={pathname.startsWith("/music")} label="Musique" icon={<Music2 />} />
         </div>
       </nav>

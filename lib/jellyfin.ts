@@ -750,6 +750,7 @@ export async function reportProgress(
   session: JellyfinSession,
   itemId: string,
   positionTicks: number,
+  isPaused = false,
 ): Promise<void> {
   try {
     await apiFetch(session, `/Sessions/Playing/Progress`, {
@@ -757,7 +758,7 @@ export async function reportProgress(
       body: JSON.stringify({
         ItemId: itemId,
         PositionTicks: Math.round(positionTicks),
-        IsPaused: false,
+        IsPaused: isPaused,
       }),
     })
   } catch {

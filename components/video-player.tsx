@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { BatteryWarning, Captions, ChevronLeft, Heart, Home, Languages, Maximize, Pause, Play, Search, Settings2, Tv, Volume2, VolumeX, WifiOff } from "lucide-react"
 import { useEffect, useRef, useState, type CSSProperties } from "react"
+import { useSWRConfig } from "swr"
 import { createPortal } from "react-dom"
 import Hls from "hls.js"
 import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackInfo, getTrickplayManifest, reportProgress, streamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
@@ -13,6 +14,7 @@ type Props = { session: JellyfinSession; itemId: string; title: string; subtitle
 
 export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, durationTicks, isLive = false, isSeriesEpisode = false, previewMode = false, previewDurationSeconds, isOpen = true, onClose }: Props) {
   const { preferences, currentIp, blockIp, serverHealth } = useJellyfin()
+  const { mutate } = useSWRConfig()
   const router = useRouter()
   const idleLimit = 120
   const [idleSeconds, setIdleSeconds] = useState(0)
@@ -366,8 +368,15 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     }
     const onWaiting = () => { if (video.currentTime > 0 || playing) setIsBuffering(true) }
     const onPlaying = () => setIsBuffering(false)
-    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setIsBuffering(false); setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); if (!previewActiveRef.current) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
-    const onPause = () => { setPlaying(false); setControls(true); if (!previewActiveRef.current && !batteryGate.current.blocked) setSecurityNotice(true) }
+    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setIsBuffering(false); setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); syncResumePosition(false); if (!previewActiveRef.current) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
+    const syncResumePosition = (paused: boolean) => {
+      if (previewActiveRef.current || isLive || !Number.isFinite(video.currentTime) || (paused && video.currentTime <= 0)) return
+      void reportProgress(session, itemId, video.currentTime * 10_000_000, paused).finally(() => {
+        void mutate(["home", session.userId])
+        void mutate(["resume", session.userId])
+      })
+    }
+    const onPause = () => { setPlaying(false); setControls(true); syncResumePosition(true); if (!previewActiveRef.current && !batteryGate.current.blocked) setSecurityNotice(true) }
     const onTime = () => {
       setProgress(video.currentTime)
       const activeDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : knownDuration
@@ -450,7 +459,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       }
     })()
     const interval = window.setInterval(() => { if (!previewActiveRef.current && !video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
-    return () => { cancelled = true; hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
+    return () => { syncResumePosition(video.paused); cancelled = true; hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
   }, [session, itemId, startPositionTicks, durationTicks, retryNonce, isLive, audioIndex, subtitleIndex, quality, portalReady, networkDecision])
 
   const hoverThumbnailIndex = trickplayInfo && hoverSeekTime != null
