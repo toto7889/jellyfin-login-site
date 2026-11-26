@@ -7,10 +7,12 @@ import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { useSWRConfig } from "swr"
 import { createPortal } from "react-dom"
 import Hls from "hls.js"
-import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackInfo, getTrickplayManifest, reportProgress, streamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
+import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackInfo, getTrickplayManifest, getTrickplayTile, reportProgress, streamUrl, subtitleStreamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
 import { useJellyfin } from "@/components/jellyfin-provider"
 
 type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; durationTicks?: number; isLive?: boolean; isSeriesEpisode?: boolean; previewMode?: boolean; previewDurationSeconds?: number; isOpen?: boolean; onClose: () => void }
+
+const TEXT_SUBTITLE_CODECS = new Set(["ass", "ssa", "subrip", "srt", "webvtt", "vtt", "mov_text", "ttml"])
 
 export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, durationTicks, isLive = false, isSeriesEpisode = false, previewMode = false, previewDurationSeconds, isOpen = true, onClose }: Props) {
   const { preferences, currentIp, blockIp, serverHealth } = useJellyfin()
@@ -20,6 +22,8 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const [idleSeconds, setIdleSeconds] = useState(0)
   const [securityNotice, setSecurityNotice] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const subtitleTrackRef = useRef<HTMLTrackElement>(null)
+  const subtitlePreferenceChosen = useRef(false)
   const shellRef = useRef<HTMLDivElement>(null)
   const hideTimer = useRef<number | null>(null)
   const [ready, setReady] = useState(false)
@@ -53,6 +57,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const [mediaStreams, setMediaStreams] = useState<JellyfinMediaStream[]>([])
   const [audioIndex, setAudioIndex] = useState<number | undefined>()
   const [subtitleIndex, setSubtitleIndex] = useState<number | null>(null)
+  const [playbackMediaSourceId, setPlaybackMediaSourceId] = useState<string | null>(null)
   const [quality, setQuality] = useState("auto")
   const [batteryPercent, setBatteryPercent] = useState<number | null>(null)
   const [batteryCharging, setBatteryCharging] = useState<boolean | null>(null)
@@ -60,6 +65,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const [showExitConfirmation, setShowExitConfirmation] = useState(false)
   const [exitDestination, setExitDestination] = useState("/")
   const [trickplayInfo, setTrickplayInfo] = useState<JellyfinTrickplayInfo | null>(null)
+  const [trickplayTileObjectUrl, setTrickplayTileObjectUrl] = useState<string | null>(null)
   const [hoverSeekTime, setHoverSeekTime] = useState<number | null>(null)
   const [seekFeedback, setSeekFeedback] = useState<string | null>(null)
   const [portalReady, setPortalReady] = useState(false)
@@ -84,6 +90,10 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     playbackIdentity.current = { itemId, previewMode }
     previewActiveRef.current = previewMode
     previewLimitReachedRef.current = false
+    subtitlePreferenceChosen.current = false
+    setSubtitleIndex(null)
+    setPlaybackMediaSourceId(null)
+    setMediaStreams([])
     setPreviewActive(previewMode)
     setPreviewLimitReached(false)
     setProgress(startPositionTicks ? startPositionTicks / 10_000_000 : 0)
@@ -331,6 +341,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     let hlsInstance: Hls | null = null
     let playbackInfo: Awaited<ReturnType<typeof getPlaybackInfo>> | null = null
     let compatibilityFallbackStarted = false
+    let subtitleNeedsBurnIn = false
     const selectedQuality = quality === "480p" ? { maxStreamingBitrate: 1_800_000, maxWidth: 854, maxHeight: 480 } : quality === "720p" ? { maxStreamingBitrate: 5_000_000, maxWidth: 1280, maxHeight: 720 } : quality === "1080p" ? { maxStreamingBitrate: 10_000_000, maxWidth: 1920, maxHeight: 1080 } : { maxStreamingBitrate: 20_000_000 }
     const playbackSource = () => playbackInfo?.MediaSources?.find((source) => source.Id) ?? playbackInfo?.MediaSources?.[0]
     const startCompatibilityFallback = async () => {
@@ -343,7 +354,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       video.removeAttribute("src")
       video.load()
       const source = playbackSource()
-      const transcodedUrl = streamUrl(session, itemId, { ...selectedQuality, mediaSourceId: source?.Id, playSessionId: playbackInfo?.PlaySessionId, transcodingUrl: source?.TranscodingUrl, audioStreamIndex: audioIndex, subtitleStreamIndex: subtitleIndex })
+      const transcodedUrl = streamUrl(session, itemId, { ...selectedQuality, mediaSourceId: source?.Id, playSessionId: playbackInfo?.PlaySessionId, transcodingUrl: source?.TranscodingUrl, audioStreamIndex: audioIndex, subtitleStreamIndex: subtitleNeedsBurnIn ? subtitleIndex : null })
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = transcodedUrl
         video.load()
@@ -418,15 +429,26 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
           }
           if (cancelled) return
           const source = playbackSource()
-          setMediaStreams(source?.MediaStreams ?? [])
+          const availableStreams = source?.MediaStreams ?? []
+          setMediaStreams(availableStreams)
+          setPlaybackMediaSourceId(source?.Id ?? null)
+          const selectedSubtitle = availableStreams.find((track) => track.Type === "Subtitle" && track.Index === subtitleIndex)
+          subtitleNeedsBurnIn = Boolean(selectedSubtitle && !TEXT_SUBTITLE_CODECS.has(selectedSubtitle.Codec?.toLowerCase() ?? ""))
+          if (!subtitlePreferenceChosen.current) {
+            const defaultSubtitle = availableStreams.find((track) => track.Type === "Subtitle" && (track.IsDefault || track.IsForced))
+            if (defaultSubtitle) {
+              subtitlePreferenceChosen.current = true
+              setSubtitleIndex(defaultSubtitle.Index)
+            }
+          }
           video.preload = "auto"
-          if (source && !source.SupportsDirectPlay && !source.SupportsDirectStream && source.SupportsTranscoding) {
+          if (source?.SupportsTranscoding && ((!source.SupportsDirectPlay && !source.SupportsDirectStream) || subtitleNeedsBurnIn)) {
             log("Jellyfin recommande le transcodage pour ce média")
             void startCompatibilityFallback()
             return
           }
           log(source?.SupportsDirectPlay || source?.SupportsDirectStream ? "Lecture directe autorisée par Jellyfin" : "Tentative de lecture directe")
-          video.src = directStreamUrl(session, itemId, { ...selectedQuality, mediaSourceId: source?.Id, playSessionId: playbackInfo?.PlaySessionId, audioStreamIndex: audioIndex, subtitleStreamIndex: subtitleIndex })
+          video.src = directStreamUrl(session, itemId, { ...selectedQuality, mediaSourceId: source?.Id, playSessionId: playbackInfo?.PlaySessionId, audioStreamIndex: audioIndex, subtitleStreamIndex: subtitleNeedsBurnIn ? subtitleIndex : null })
           video.load()
           return
         }
@@ -474,9 +496,37 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const trickplayTileIndex = hoverThumbnailIndex != null && trickplayCapacity ? Math.floor(hoverThumbnailIndex / trickplayCapacity) : 0
   const trickplayLocalIndex = hoverThumbnailIndex != null && trickplayCapacity ? hoverThumbnailIndex % trickplayCapacity : 0
   const trickplayScale = trickplayInfo ? 256 / trickplayInfo.Width : 1
-  const trickplayUrl = trickplayInfo
-    ? `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/Trickplay/${trickplayInfo.Width}/${trickplayTileIndex}.jpg?api_key=${encodeURIComponent(session.accessToken)}`
-    : ""
+  const activeSubtitleTrack = mediaStreams.find((track) => track.Type === "Subtitle" && track.Index === subtitleIndex)
+  const activeSubtitleUrl = activeSubtitleTrack && playbackMediaSourceId && TEXT_SUBTITLE_CODECS.has(activeSubtitleTrack.Codec?.toLowerCase() ?? "")
+    ? subtitleStreamUrl(session, itemId, playbackMediaSourceId, activeSubtitleTrack.Index)
+    : null
+
+  useEffect(() => {
+    const textTrack = subtitleTrackRef.current?.track
+    if (textTrack) textTrack.mode = activeSubtitleUrl ? "showing" : "disabled"
+  }, [activeSubtitleUrl])
+
+  useEffect(() => {
+    if (previewMode || !trickplayInfo || hoverThumbnailIndex == null) {
+      setTrickplayTileObjectUrl(null)
+      return
+    }
+    const controller = new AbortController()
+    let objectUrl: string | null = null
+    setTrickplayTileObjectUrl(null)
+    void getTrickplayTile(session, itemId, trickplayInfo.Width, trickplayTileIndex, controller.signal)
+      .then((image) => {
+        if (controller.signal.aborted) return
+        objectUrl = URL.createObjectURL(image)
+        setTrickplayTileObjectUrl(objectUrl)
+      })
+      .catch(() => { if (!controller.signal.aborted) setTrickplayTileObjectUrl(null) })
+    return () => {
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [session, itemId, previewMode, trickplayInfo, hoverThumbnailIndex == null ? null : trickplayTileIndex])
+
   const batteryNotice = batteryPercent != null && batteryPercent < 25 && (batteryCharging || batteryRequires25.current)
     ? "Veuillez attendre que la batterie atteigne 25 % avant de relancer la lecture. Le lecteur reprendra automatiquement si le film était déjà en cours."
     : "La lecture est bloquée à 10 % ou moins. Branchez votre appareil et attendez 25 % pour reprendre."
@@ -487,7 +537,9 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     <div className={`absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/85 to-transparent px-5 pb-14 pt-5 transition-opacity duration-300 ${controls ? "opacity-100" : "pointer-events-none opacity-0"}`}><button type="button" onClick={() => requestExit("/")} className="flex items-center gap-2 text-sm font-medium text-white/85 hover:text-white"><ChevronLeft className="size-6" /> Retour au catalogue</button><div className="text-center">{isLive ? <span className="mx-auto mb-1 inline-flex items-center gap-2 rounded-full bg-[#e50914] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.16em]"><span className="size-1.5 animate-pulse rounded-full bg-white" />EN DIRECT</span> : null}<h2 className="font-semibold">{title}</h2>{subtitle ? <p className="text-xs text-white/55">{subtitle}</p> : null}{language ? <p className="text-xs text-cyan-200/80">Langue : {language}</p> : null}</div><div className="flex items-center gap-3"><button type="button" onClick={toggleCinemaMode} aria-pressed={tvMode} className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">{tvMode ? "Quitter le mode cinéma" : "Mode cinéma"}</button><button type="button" onClick={() => setShowPages((value) => !value)} aria-expanded={showPages} aria-label="Ouvrir la navigation des pages" className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">Pages</button><button type="button" onClick={() => setShowLogs((value) => !value)} className="flex items-center gap-2 text-xs text-white/70 hover:text-white" aria-label="Afficher les logs"><Settings2 className="size-5" /> Logs</button></div></div>
     {showPages ? <nav aria-label="Navigation principale" className="absolute right-5 top-20 z-40 grid w-56 gap-1 rounded-2xl border border-white/15 bg-[#111]/95 p-2 shadow-2xl backdrop-blur-xl">{[{ href: "/", label: "Accueil", icon: <Home className="size-4" /> }, { href: "/tv", label: "Hub TV", icon: <Tv className="size-4" /> }, { href: "/guide-tv", label: "Guide TV", icon: <Tv className="size-4" /> }, { href: "/search", label: "Recherche", icon: <Search className="size-4" /> }, { href: "/favorites", label: "Favoris", icon: <Heart className="size-4" /> }, { href: "/settings", label: "Paramètres", icon: <Settings2 className="size-4" /> }, { href: "/genres", label: "Genres", icon: <Play className="size-4" /> }, { href: "/cast", label: "Distribution", icon: <Play className="size-4" /> }, { href: "/verification", label: "Vérification", icon: <Settings2 className="size-4" /> }, { href: "/securite", label: "Sécurité", icon: <Settings2 className="size-4" /> }, { href: "/releases", label: "Nouveautés", icon: <Play className="size-4" /> }, { href: "/ip", label: "Mon IP", icon: <Settings2 className="size-4" /> }, { href: "/admin/ip", label: "Administration", icon: <Settings2 className="size-4" /> }].map((page) => <Link key={page.href} href={page.href} onClick={(event) => { event.preventDefault(); requestExit(page.href) }} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/75 transition hover:bg-white/10 hover:text-white">{page.icon}{page.label}</Link>)}</nav> : null}
     <div className="relative flex min-h-0 flex-1 items-center justify-center" onDoubleClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }}>
-      <video ref={videoRef} playsInline className={`h-full w-full object-contain transition-opacity duration-500 ${ready ? "opacity-100" : "opacity-0"}`} onClick={togglePlay} />
+      <video ref={videoRef} playsInline className={`h-full w-full object-contain transition-opacity duration-500 ${ready ? "opacity-100" : "opacity-0"}`} onClick={togglePlay}>
+        {activeSubtitleUrl && activeSubtitleTrack ? <track ref={subtitleTrackRef} kind="subtitles" src={activeSubtitleUrl} srcLang={activeSubtitleTrack.Language || "und"} label={activeSubtitleTrack.DisplayTitle || activeSubtitleTrack.Language || "Sous-titres"} default /> : null}
+      </video>
       {previewLimitReached ? <div role="status" className="absolute left-1/2 top-1/2 z-30 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-3 rounded-2xl border border-white/15 bg-black/75 p-5 text-center shadow-2xl backdrop-blur-xl"><p className="text-sm text-white/75">L’aperçu est terminé. Le flux est toujours chargé.</p><button type="button" onClick={continueAfterPreview} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-5 text-sm font-semibold text-black transition hover:scale-[1.02]"><Play className="size-4 fill-current" />Continuer sans recharger</button></div> : null}
       {showLogs ? <aside className="absolute right-5 top-20 z-40 w-[min(420px,calc(100%-2.5rem))] rounded-2xl border border-white/15 bg-black/80 p-4 font-mono text-[11px] text-white/75 shadow-2xl backdrop-blur-xl"><div className="mb-3 flex items-center justify-between font-sans text-sm text-white"><span>Diagnostic de lecture</span><button type="button" onClick={() => setShowLogs(false)} aria-label="Fermer les logs">Fermer</button></div><div className="max-h-44 overflow-auto">{logs.length ? logs.map((entry, index) => <p key={`${entry}-${index}`} className="border-b border-white/5 py-1">{entry}</p>) : <p>Aucun événement.</p>}</div></aside> : null}
       {securityNotice && !playing ? <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-2xl border border-amber-200/20 bg-black/70 px-5 py-3 text-center text-sm text-amber-100 backdrop-blur-xl">Lecture en pause. Redirection dans <strong>{Math.max(0, idleLimit - idleSeconds)} s</strong> si aucun film n&apos;est lancé.</div> : null}
@@ -498,12 +550,12 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     <div className={`absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-5 pb-5 pt-16 transition-opacity duration-300 ${controls && ready ? "opacity-100" : "pointer-events-none opacity-0"}`}>
       <div className="relative">
         <input aria-label="Position dans la vidéo" type="range" min="0" max={fullDuration} step="0.1" value={Math.min(progress, fullDuration)} onChange={(e) => seek(Number(e.target.value))} onPointerMove={(event) => { if (!trickplayInfo || !fullDuration) return; const rect = event.currentTarget.getBoundingClientRect(); const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)); setHoverSeekTime(fraction * fullDuration) }} onPointerLeave={() => setHoverSeekTime(null)} style={{ "--range-progress": `${fullDuration ? Math.min(100, (progress / fullDuration) * 100) : 0}%`, "--range-buffered": `${fullDuration ? Math.min(100, Math.max(progress, bufferedProgress) / fullDuration * 100) : 0}%` } as CSSProperties} className="player-range w-full" />
-        {hoverSeekTime != null && hoverThumbnailIndex != null && trickplayInfo ? <div aria-hidden="true" className="pointer-events-none absolute bottom-8 -translate-x-1/2 overflow-hidden rounded-lg border border-white/20 bg-black shadow-xl" style={{ left: `clamp(128px, ${(hoverSeekTime / fullDuration) * 100}%, calc(100% - 128px))`, width: 256 }}><div className="w-full bg-cover bg-no-repeat" style={{ aspectRatio: `${trickplayInfo.Width} / ${trickplayInfo.Height}`, backgroundImage: `url("${trickplayUrl}")`, backgroundSize: `${trickplayInfo.Width * trickplayInfo.TileWidth * trickplayScale}px ${trickplayInfo.Height * trickplayInfo.TileHeight * trickplayScale}px`, backgroundPosition: `-${(trickplayLocalIndex % trickplayInfo.TileWidth) * trickplayInfo.Width * trickplayScale}px -${Math.floor(trickplayLocalIndex / trickplayInfo.TileWidth) * trickplayInfo.Height * trickplayScale}px` }} /><p className="px-2 py-1 text-center text-[11px] text-white">{formatTime(hoverSeekTime)}</p></div> : null}
+        {hoverSeekTime != null && hoverThumbnailIndex != null && trickplayInfo ? <div aria-hidden="true" className="pointer-events-none absolute bottom-8 -translate-x-1/2 overflow-hidden rounded-lg border border-white/20 bg-black shadow-xl" style={{ left: `clamp(128px, ${(hoverSeekTime / fullDuration) * 100}%, calc(100% - 128px))`, width: 256 }}><div className="w-full bg-cover bg-no-repeat" style={{ aspectRatio: `${trickplayInfo.Width} / ${trickplayInfo.Height}`, backgroundImage: trickplayTileObjectUrl ? `url("${trickplayTileObjectUrl}")` : "none", backgroundSize: `${trickplayInfo.Width * trickplayInfo.TileWidth * trickplayScale}px ${trickplayInfo.Height * trickplayInfo.TileHeight * trickplayScale}px`, backgroundPosition: `-${(trickplayLocalIndex % trickplayInfo.TileWidth) * trickplayInfo.Width * trickplayScale}px -${Math.floor(trickplayLocalIndex / trickplayInfo.TileWidth) * trickplayInfo.Height * trickplayScale}px` }} />{!trickplayTileObjectUrl ? <p className="px-2 py-1 text-center text-[11px] text-white/70">Chargement de l’aperçu…</p> : null}<p className="px-2 py-1 text-center text-[11px] text-white">{formatTime(hoverSeekTime)}</p></div> : null}
       </div>
       {seekFeedback ? <div aria-live="polite" className="pointer-events-none absolute left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2 animate-in fade-in zoom-in-90 rounded-full bg-black/65 px-5 py-3 text-lg font-semibold text-white">{seekFeedback}</div> : null}
       {!isLive ? <div className="mt-3 flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/45 px-3 py-2 text-xs text-white/65"><Languages className="size-4" /><span className="sr-only">Langue audio</span><select aria-label="Langue audio" value={audioIndex ?? ""} onChange={(event) => { restartPosition.current = videoRef.current?.currentTime ?? progress; restartWasPlaying.current = !videoRef.current?.paused; setAudioIndex(Number(event.target.value)) }} className="max-w-36 bg-transparent text-white outline-none [&>option]:bg-[#171717]"><option value="">Par défaut</option>{mediaStreams.filter((track) => track.Type === "Audio").map((track) => <option key={track.Index} value={track.Index}>{track.DisplayTitle || track.Language || `Piste ${track.Index + 1}`}</option>)}</select></label>
-        <label className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/45 px-3 py-2 text-xs text-white/65"><Captions className="size-4" /><span className="sr-only">Sous-titres</span><select aria-label="Sous-titres" value={subtitleIndex ?? "off"} onChange={(event) => { restartPosition.current = videoRef.current?.currentTime ?? progress; restartWasPlaying.current = !videoRef.current?.paused; setSubtitleIndex(event.target.value === "off" ? null : Number(event.target.value)) }} className="max-w-36 bg-transparent text-white outline-none [&>option]:bg-[#171717]"><option value="off">Sous-titres désactivés</option>{mediaStreams.filter((track) => track.Type === "Subtitle").map((track) => <option key={track.Index} value={track.Index}>{track.DisplayTitle || track.Language || `Piste ${track.Index + 1}`}</option>)}</select></label>
+        <label className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/45 px-3 py-2 text-xs text-white/65"><Captions className="size-4" /><span className="sr-only">Sous-titres</span><select aria-label="Sous-titres" value={subtitleIndex ?? "off"} onChange={(event) => { restartPosition.current = videoRef.current?.currentTime ?? progress; restartWasPlaying.current = !videoRef.current?.paused; subtitlePreferenceChosen.current = true; setSubtitleIndex(event.target.value === "off" ? null : Number(event.target.value)) }} className="max-w-36 bg-transparent text-white outline-none [&>option]:bg-[#171717]"><option value="off">Sous-titres désactivés</option>{mediaStreams.filter((track) => track.Type === "Subtitle").map((track) => <option key={track.Index} value={track.Index}>{track.DisplayTitle || track.Language || `Piste ${track.Index + 1}`}</option>)}</select></label>
         <label className="flex items-center gap-2 rounded-lg border border-white/15 bg-black/45 px-3 py-2 text-xs text-white/65"><span>Qualité</span><select aria-label="Qualité vidéo" value={quality} onChange={(event) => { restartPosition.current = videoRef.current?.currentTime ?? progress; restartWasPlaying.current = !videoRef.current?.paused; setQuality(event.target.value) }} className="bg-transparent text-white outline-none [&>option]:bg-[#171717]"><option value="auto">Automatique</option><option value="1080p">1080p</option><option value="720p">720p</option><option value="480p">480p</option></select></label>
         {batteryPercent != null ? <span className={`ml-auto flex items-center gap-1 text-xs ${batteryPercent <= 20 ? "text-amber-300" : "text-white/45"}`}><BatteryWarning className="size-4" />{batteryPercent}%</span> : null}
       </div> : null}

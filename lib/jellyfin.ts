@@ -388,6 +388,26 @@ export async function getTrickplayManifest(session: JellyfinSession, itemId: str
     ?? null
 }
 
+export async function getTrickplayTile(
+  session: JellyfinSession,
+  itemId: string,
+  width: number,
+  tileIndex: number,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const response = await fetch(
+    `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/Trickplay/${width}/${tileIndex}.jpg`,
+    { headers: { Authorization: buildAuthHeader(session.deviceId, session.accessToken) }, signal },
+  )
+  if (!response.ok) throw new Error(`Impossible de charger la vignette Trickplay (${response.status}).`)
+  return response.blob()
+}
+
+export function subtitleStreamUrl(session: JellyfinSession, itemId: string, mediaSourceId: string, streamIndex: number): string {
+  const params = new URLSearchParams({ api_key: session.accessToken, userId: session.userId, DeviceId: session.deviceId })
+  return `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/${encodeURIComponent(mediaSourceId)}/Subtitles/${streamIndex}/Stream.vtt?${params.toString()}`
+}
+
 export async function getSeasons(
   session: JellyfinSession,
   seriesId: string,
@@ -650,6 +670,7 @@ export type JellyfinMediaStream = {
   DisplayTitle?: string
   Codec?: string
   IsDefault?: boolean
+  IsForced?: boolean
   IsExternal?: boolean
 }
 
