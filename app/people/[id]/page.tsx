@@ -5,7 +5,7 @@ import { PersonDetailView } from "@/components/person-detail-view"
 
 export const metadata: Metadata = {
   title: "Fiche artiste — JFLX",
-  description: "Découvrez les informations et les films de la distribution présents dans votre bibliothèque Jellyfin.",
+  description: "Découvrez la filmographie TMDB et les films de la distribution présents dans votre bibliothèque Jellyfin.",
 }
 
 export default async function PersonPage({

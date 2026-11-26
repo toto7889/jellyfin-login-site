@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"
 import { ArrowDown, Check, ChevronRight, Clock3, Film, Heart, Loader2, Play, Share2, Sparkles, Star, User } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { VideoPlayer } from "@/components/video-player"
+import { MovieAvailability } from "@/components/movie-availability"
 import { Button } from "@/components/ui/button"
 import {
   backdropImage,
@@ -20,10 +21,10 @@ import {
   type JellyfinSession,
 } from "@/lib/jellyfin"
 
-export function DetailView({ itemId }: { itemId: string }) {
+export function DetailView({ itemId, cinemaConfigured }: { itemId: string; cinemaConfigured: boolean }) {
   const { session } = useJellyfin()
   if (!session) return null
-  return <DetailContent session={session} itemId={itemId} />
+  return <DetailContent session={session} itemId={itemId} cinemaConfigured={cinemaConfigured} />
 }
 
 type PlayTarget = {
@@ -41,9 +42,11 @@ type PlayTarget = {
 function DetailContent({
   session,
   itemId,
+  cinemaConfigured,
 }: {
   session: JellyfinSession
   itemId: string
+  cinemaConfigured: boolean
 }) {
   const { preferences, toggleFavorite } = useJellyfin()
   const [playing, setPlaying] = useState<PlayTarget | null>(null)
@@ -221,6 +224,8 @@ function DetailContent({
       </section>
 
       <main className="relative z-10 mx-auto max-w-[1500px] px-5 sm:px-10">
+        {item.Type === "Movie" ? <MovieAvailability mediaType="movie" tmdbId={item.ProviderIds?.Tmdb} title={item.Name} year={item.ProductionYear} cinemaConfigured={cinemaConfigured} /> : null}
+
         <div className="grid gap-10 border-b border-white/10 py-8 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section aria-labelledby="synopsis-title">
             <div className="mb-4 flex items-center gap-3"><span className="h-6 w-1 rounded-full bg-[#f2bb55]" /><h2 id="synopsis-title" className="text-xl font-bold tracking-tight">À propos</h2></div>

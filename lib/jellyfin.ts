@@ -5,7 +5,19 @@ export const SERVER_URL = "https://film-jellyfin.ddns.net:8920"
 
 const CLIENT_NAME = "Jellyfin Web (v0)"
 const CLIENT_VERSION = "1.0.0"
-const DEVICE_NAME = "Browser"
+const DEFAULT_DEVICE_NAME = "Navigateur"
+
+function configuredDeviceName(): string {
+  if (typeof window === "undefined") return DEFAULT_DEVICE_NAME
+  try {
+    const preferences = JSON.parse(window.localStorage.getItem("jf_preferences") ?? "{}") as { playerDeviceName?: unknown }
+    if (typeof preferences.playerDeviceName !== "string") return DEFAULT_DEVICE_NAME
+    const name = preferences.playerDeviceName.replace(/["\\\r\n]/g, "").trim().slice(0, 48)
+    return name || DEFAULT_DEVICE_NAME
+  } catch {
+    return DEFAULT_DEVICE_NAME
+  }
+}
 
 export type JellyfinSession = {
   serverUrl: string
@@ -48,6 +60,7 @@ export type BaseItem = {
   AlbumArtist?: string
   Artists?: string[]
   People?: Person[]
+  ProviderIds?: Record<string, string>
   Studios?: { Name: string; Id?: string }[]
   Taglines?: string[]
   Trickplay?: Record<string, Record<string, JellyfinTrickplayInfo>>
@@ -106,7 +119,7 @@ type ItemsResponse = {
 function buildAuthHeader(deviceId: string, token?: string): string {
   const parts = [
     `MediaBrowser Client="${CLIENT_NAME}"`,
-    `Device="${DEVICE_NAME}"`,
+    `Device="${configuredDeviceName()}"`,
     `DeviceId="${deviceId}"`,
     `Version="${CLIENT_VERSION}"`,
   ]
@@ -375,6 +388,26 @@ export async function getTrickplayManifest(session: JellyfinSession, itemId: str
     ?? null
 }
 
+export async function getTrickplayTile(
+  session: JellyfinSession,
+  itemId: string,
+  width: number,
+  tileIndex: number,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const response = await fetch(
+    `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/Trickplay/${width}/${tileIndex}.jpg`,
+    { headers: { Authorization: buildAuthHeader(session.deviceId, session.accessToken) }, signal },
+  )
+  if (!response.ok) throw new Error(`Impossible de charger la vignette Trickplay (${response.status}).`)
+  return response.blob()
+}
+
+export function subtitleStreamUrl(session: JellyfinSession, itemId: string, mediaSourceId: string, streamIndex: number): string {
+  const params = new URLSearchParams({ api_key: session.accessToken, userId: session.userId, DeviceId: session.deviceId })
+  return `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/${encodeURIComponent(mediaSourceId)}/Subtitles/${streamIndex}/Stream.vtt?${params.toString()}`
+}
+
 export async function getSeasons(
   session: JellyfinSession,
   seriesId: string,
@@ -595,6 +628,10 @@ export function audioStreamUrl(session: JellyfinSession, itemId: string): string
 
 // HLS is a compatibility path when the browser cannot play the source directly.
 export function streamUrl(session: JellyfinSession, itemId: string, options: PlaybackStreamOptions = {}): string {
+  const fallbackUrl = `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/master.m3u8`
+  const requestedUrl = options.transcodingUrl ? new URL(options.transcodingUrl, `${session.serverUrl}/`) : null
+  const serverOrigin = new URL(session.serverUrl).origin
+  const streamEndpoint = requestedUrl?.origin === serverOrigin ? requestedUrl : new URL(fallbackUrl)
   const params = new URLSearchParams({
     api_key: session.accessToken,
     userId: session.userId,
@@ -619,7 +656,11 @@ export function streamUrl(session: JellyfinSession, itemId: string, options: Pla
   if (options.playSessionId) params.set("PlaySessionId", options.playSessionId)
   if (options.audioStreamIndex != null) params.set("AudioStreamIndex", String(options.audioStreamIndex))
   if (options.subtitleStreamIndex != null) params.set("SubtitleStreamIndex", String(options.subtitleStreamIndex))
-  return `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/master.m3u8?${params.toString()}`
+  streamEndpoint.searchParams.set("api_key", session.accessToken)
+  streamEndpoint.searchParams.set("userId", session.userId)
+  streamEndpoint.searchParams.set("DeviceId", session.deviceId)
+  params.forEach((value, key) => streamEndpoint.searchParams.set(key, value))
+  return streamEndpoint.toString()
 }
 
 export type JellyfinMediaStream = {
@@ -629,11 +670,13 @@ export type JellyfinMediaStream = {
   DisplayTitle?: string
   Codec?: string
   IsDefault?: boolean
+  IsForced?: boolean
   IsExternal?: boolean
 }
 
 export type JellyfinPlaybackSource = {
   Id?: string
+  TranscodingUrl?: string
   MediaStreams?: JellyfinMediaStream[]
   SupportsDirectPlay?: boolean
   SupportsDirectStream?: boolean
@@ -680,6 +723,7 @@ export type PlaybackStreamOptions = {
   maxHeight?: number
   mediaSourceId?: string
   playSessionId?: string
+  transcodingUrl?: string
   startTimeTicks?: number
 }
 
