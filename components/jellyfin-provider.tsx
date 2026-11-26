@@ -9,7 +9,7 @@ const BLOCKED_IPS_KEY = "jf_blocked_ips"
 
 const FALLBACK_IP = "IP non disponible"
 
-type Preferences = { compact: boolean; accent: "red" | "blue"; favorites: string[]; autoplay: boolean; reduceMotion: boolean; tvMode: boolean }
+type Preferences = { compact: boolean; accent: "red" | "blue"; favorites: string[]; autoplay: boolean; reduceMotion: boolean; tvMode: boolean; playerDeviceName: string }
 type JellyfinContextValue = {
   session: JellyfinSession | null
   ready: boolean
@@ -27,7 +27,7 @@ type JellyfinContextValue = {
   unblockIp: (ip: string) => void
 }
 
-const defaults: Preferences = { compact: false, accent: "red", favorites: [], autoplay: true, reduceMotion: false, tvMode: false }
+const defaults: Preferences = { compact: false, accent: "red", favorites: [], autoplay: true, reduceMotion: false, tvMode: false, playerDeviceName: "Navigateur" }
 const JellyfinContext = createContext<JellyfinContextValue | null>(null)
 
 export function JellyfinProvider({ children }: { children: React.ReactNode }) {

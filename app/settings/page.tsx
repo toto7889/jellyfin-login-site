@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { getDeviceId, getPlaybackSessions, sendPlaybackCommand, seekPlaybackSession, type JellyfinPlaybackSession } from "@/lib/jellyfin"
 
 export default function SettingsPage() {
-  const { session, preferences, updatePreferences, logout } = useJellyfin()
+  const { session, ready, preferences, updatePreferences, logout } = useJellyfin()
   const [commandError, setCommandError] = useState<string | null>(null)
   const [confirmLogout, setConfirmLogout] = useState(false)
   const { data: sessions, error, isLoading, mutate } = useSWR(
@@ -38,9 +38,9 @@ export default function SettingsPage() {
     }
   }
 
-  const thisDeviceId = session?.deviceId || (typeof window !== "undefined" ? getDeviceId() : "")
-  const mediaSessionAvailable = typeof navigator !== "undefined" && "mediaSession" in navigator
-  const fullscreenAvailable = typeof document !== "undefined" && Boolean(document.fullscreenEnabled)
+  const thisDeviceId = session?.deviceId || (ready ? getDeviceId() : "")
+  const mediaSessionAvailable = ready && typeof navigator !== "undefined" && "mediaSession" in navigator
+  const fullscreenAvailable = ready && typeof document !== "undefined" && Boolean(document.fullscreenEnabled)
 
   return <main className="min-h-screen px-4 pb-28 pt-8 text-foreground sm:px-6 sm:py-14 sm:pb-16">
     <div className="mx-auto max-w-3xl">
@@ -53,7 +53,7 @@ export default function SettingsPage() {
           <Button variant="outline" size="icon" onClick={() => void mutate()} aria-label="Actualiser les appareils"><RefreshCw /></Button>
         </div>
         <div className="mt-5 rounded-xl border border-primary/30 bg-primary/5 p-4">
-          <div className="flex items-center gap-3"><Monitor className="size-5 text-primary" /><div className="min-w-0"><p className="font-medium">Cet appareil · Navigateur</p><p className="truncate text-xs text-muted-foreground">ID Jellyfin : {thisDeviceId || "disponible après connexion"}</p></div></div>
+          <div className="flex items-center gap-3"><Monitor className="size-5 text-primary" /><div className="min-w-0"><p className="font-medium">Cet appareil · {preferences.playerDeviceName}</p><p className="truncate text-xs text-muted-foreground">ID Jellyfin : {thisDeviceId || "disponible après connexion"}</p></div></div>
           <p className="mt-3 text-xs text-muted-foreground">Jellyfin identifie cet appareil avec le DeviceId envoyé à l’authentification. Le navigateur ne révèle pas d’identifiant matériel.</p>
         </div>
         {isLoading ? <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Recherche des sessions…</div> : error ? <p role="status" className="py-5 text-sm text-muted-foreground">Sessions indisponibles : {error.message}. Vérifiez l’accès au serveur et ses permissions.</p> : (sessions ?? []).length ? <ul className="mt-4 flex flex-col gap-3">{sessions!.map((target) => {
@@ -73,7 +73,8 @@ export default function SettingsPage() {
 
       <section aria-labelledby="player-heading" className="mt-5 rounded-2xl border border-border bg-card p-4 sm:p-6">
         <h2 id="player-heading" className="text-lg font-semibold">Lecteur et interface</h2>
-        <label className="mt-4 flex min-h-14 items-center justify-between gap-4 border-b border-border py-3"><span><strong className="text-sm">Lecture automatique</strong><small className="mt-1 block text-xs text-muted-foreground">Lancer la lecture lorsque le flux est prêt</small></span><input type="checkbox" checked={preferences.autoplay} onChange={(event) => updatePreferences({ autoplay: event.target.checked })} className="size-5 accent-primary" /></label>
+        <label className="mt-4 block border-b border-border py-3"><span className="text-sm font-semibold">Nom de l’appareil Jellyfin</span><small className="mt-1 block text-xs text-muted-foreground">Ce nom apparaîtra dans les sessions de lecture et la liste des appareils Jellyfin.</small><input type="text" value={preferences.playerDeviceName} maxLength={48} autoComplete="off" onChange={(event) => updatePreferences({ playerDeviceName: event.target.value })} className="mt-3 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-primary" aria-label="Nom affiché du lecteur Jellyfin" /></label>
+        <label className="flex min-h-14 items-center justify-between gap-4 border-b border-border py-3"><span><strong className="text-sm">Lecture automatique</strong><small className="mt-1 block text-xs text-muted-foreground">Lancer la lecture lorsque le flux est prêt</small></span><input type="checkbox" checked={preferences.autoplay} onChange={(event) => updatePreferences({ autoplay: event.target.checked })} className="size-5 accent-primary" /></label>
         <label className="flex min-h-14 items-center justify-between gap-4 border-b border-border py-3"><span><strong className="text-sm">Mode TV</strong><small className="mt-1 block text-xs text-muted-foreground">Cibles plus grandes et focus clavier renforcé pour téléviseur ou télécommande</small></span><input type="checkbox" checked={preferences.tvMode} onChange={(event) => updatePreferences({ tvMode: event.target.checked })} className="size-5 accent-primary" /></label>
         <label className="flex min-h-14 items-center justify-between gap-4 border-b border-border py-3"><span><strong className="text-sm">Réduire les animations</strong><small className="mt-1 block text-xs text-muted-foreground">Limiter les mouvements de l’interface</small></span><input type="checkbox" checked={preferences.reduceMotion} onChange={(event) => updatePreferences({ reduceMotion: event.target.checked })} className="size-5 accent-primary" /></label>
         <div className="grid gap-3 pt-4 text-sm sm:grid-cols-2"><p className="flex items-center gap-2 text-muted-foreground"><Volume2 className="size-4" />Audio : contrôles natifs du navigateur</p><p className="flex items-center gap-2 text-muted-foreground"><Monitor className="size-4" />Plein écran : {fullscreenAvailable ? "pris en charge" : "non disponible"}</p><p className="flex items-center gap-2 text-muted-foreground"><Smartphone className="size-4" />Commandes multimédias : {mediaSessionAvailable ? "API disponible" : "non disponible dans ce navigateur"}</p></div>

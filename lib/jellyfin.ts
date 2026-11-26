@@ -5,7 +5,19 @@ export const SERVER_URL = "https://film-jellyfin.ddns.net:8920"
 
 const CLIENT_NAME = "Jellyfin Web (v0)"
 const CLIENT_VERSION = "1.0.0"
-const DEVICE_NAME = "Browser"
+const DEFAULT_DEVICE_NAME = "Navigateur"
+
+function configuredDeviceName(): string {
+  if (typeof window === "undefined") return DEFAULT_DEVICE_NAME
+  try {
+    const preferences = JSON.parse(window.localStorage.getItem("jf_preferences") ?? "{}") as { playerDeviceName?: unknown }
+    if (typeof preferences.playerDeviceName !== "string") return DEFAULT_DEVICE_NAME
+    const name = preferences.playerDeviceName.replace(/["\\\r\n]/g, "").trim().slice(0, 48)
+    return name || DEFAULT_DEVICE_NAME
+  } catch {
+    return DEFAULT_DEVICE_NAME
+  }
+}
 
 export type JellyfinSession = {
   serverUrl: string
@@ -48,6 +60,7 @@ export type BaseItem = {
   AlbumArtist?: string
   Artists?: string[]
   People?: Person[]
+  ProviderIds?: Record<string, string>
   Studios?: { Name: string; Id?: string }[]
   Taglines?: string[]
   Trickplay?: Record<string, Record<string, JellyfinTrickplayInfo>>
@@ -106,7 +119,7 @@ type ItemsResponse = {
 function buildAuthHeader(deviceId: string, token?: string): string {
   const parts = [
     `MediaBrowser Client="${CLIENT_NAME}"`,
-    `Device="${DEVICE_NAME}"`,
+    `Device="${configuredDeviceName()}"`,
     `DeviceId="${deviceId}"`,
     `Version="${CLIENT_VERSION}"`,
   ]
