@@ -608,6 +608,10 @@ export function audioStreamUrl(session: JellyfinSession, itemId: string): string
 
 // HLS is a compatibility path when the browser cannot play the source directly.
 export function streamUrl(session: JellyfinSession, itemId: string, options: PlaybackStreamOptions = {}): string {
+  const fallbackUrl = `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/master.m3u8`
+  const requestedUrl = options.transcodingUrl ? new URL(options.transcodingUrl, `${session.serverUrl}/`) : null
+  const serverOrigin = new URL(session.serverUrl).origin
+  const streamEndpoint = requestedUrl?.origin === serverOrigin ? requestedUrl : new URL(fallbackUrl)
   const params = new URLSearchParams({
     api_key: session.accessToken,
     userId: session.userId,
@@ -632,7 +636,11 @@ export function streamUrl(session: JellyfinSession, itemId: string, options: Pla
   if (options.playSessionId) params.set("PlaySessionId", options.playSessionId)
   if (options.audioStreamIndex != null) params.set("AudioStreamIndex", String(options.audioStreamIndex))
   if (options.subtitleStreamIndex != null) params.set("SubtitleStreamIndex", String(options.subtitleStreamIndex))
-  return `${session.serverUrl}/Videos/${encodeURIComponent(itemId)}/master.m3u8?${params.toString()}`
+  streamEndpoint.searchParams.set("api_key", session.accessToken)
+  streamEndpoint.searchParams.set("userId", session.userId)
+  streamEndpoint.searchParams.set("DeviceId", session.deviceId)
+  params.forEach((value, key) => streamEndpoint.searchParams.set(key, value))
+  return streamEndpoint.toString()
 }
 
 export type JellyfinMediaStream = {
@@ -647,6 +655,7 @@ export type JellyfinMediaStream = {
 
 export type JellyfinPlaybackSource = {
   Id?: string
+  TranscodingUrl?: string
   MediaStreams?: JellyfinMediaStream[]
   SupportsDirectPlay?: boolean
   SupportsDirectStream?: boolean
@@ -693,6 +702,7 @@ export type PlaybackStreamOptions = {
   maxHeight?: number
   mediaSourceId?: string
   playSessionId?: string
+  transcodingUrl?: string
   startTimeTicks?: number
 }
 
