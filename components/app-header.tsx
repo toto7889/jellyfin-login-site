@@ -20,6 +20,7 @@ function AppHeaderContent() {
   const [confirmLogout, setConfirmLogout] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [closingLogout, setClosingLogout] = useState(false)
+  const cinemaMode = preferences.cinemaMode
 
   const closeLogout = useCallback(() => {
     if (loggingOut) return
@@ -49,7 +50,7 @@ function AppHeaderContent() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-white/[.08] bg-[#090909]/90 shadow-2xl backdrop-blur-2xl">
+      <header className={cinemaMode && pathname === "/" ? "absolute inset-x-0 top-0 z-40 border-b border-transparent bg-gradient-to-b from-black/85 to-transparent shadow-none" : "sticky top-0 z-40 border-b border-white/[.08] bg-[#090909]/90 shadow-2xl backdrop-blur-2xl"}>
         <div className="mx-auto flex h-[68px] max-w-[1500px] items-center gap-5 px-4 sm:px-7">
           <Link href="/" className="group flex shrink-0 items-center gap-2.5">
             <span className="text-[26px] font-black tracking-[-.08em] text-[#e50914] transition-transform group-hover:scale-110">JFLX</span>
@@ -93,6 +94,7 @@ function AppHeaderContent() {
                   <Link role="menuitem" href="/a-propos" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><MonitorPlay className="size-4" /> À propos de JFLX</Link>
                   <div className="px-3 py-3">
                     <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-white/45"><Settings className="size-3" /> Interface</p>
+                    <button type="button" aria-pressed={cinemaMode} onClick={() => { updatePreferences({ cinemaMode: !cinemaMode }); setMenuOpen(false); router.push("/") }} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10"><span className="flex items-center gap-2"><MonitorPlay className="size-4" /> Interface cinéma</span>{cinemaMode ? <Check className="size-4 text-[#e50914]" /> : null}</button>
                     <button type="button" onClick={() => updatePreferences({ tvMode: !preferences.tvMode })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10"><span className="flex items-center gap-2"><MonitorPlay className="size-4" /> Mode TV</span>{preferences.tvMode ? <Check className="size-4 text-[#e50914]" /> : null}</button>
                     <button type="button" onClick={() => updatePreferences({ compact: !preferences.compact })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10">Mode compact {preferences.compact ? <Check className="size-4 text-[#e50914]" /> : null}</button>
                     <button type="button" onClick={() => updatePreferences({ accent: preferences.accent === "red" ? "blue" : "red" })} className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-sm text-white/75 hover:bg-white/10">Accent {preferences.accent === "red" ? "Rouge" : "Bleu"}<span className={`size-3 rounded-full ${preferences.accent === "red" ? "bg-[#e50914]" : "bg-[#00a4dc]"}`} /></button>

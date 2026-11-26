@@ -9,7 +9,7 @@ const BLOCKED_IPS_KEY = "jf_blocked_ips"
 
 const FALLBACK_IP = "IP non disponible"
 
-type Preferences = { compact: boolean; accent: "red" | "blue"; favorites: string[]; autoplay: boolean; reduceMotion: boolean; tvMode: boolean; playerDeviceName: string }
+type Preferences = { compact: boolean; accent: "red" | "blue"; favorites: string[]; autoplay: boolean; reduceMotion: boolean; tvMode: boolean; cinemaMode: boolean; playerDeviceName: string }
 type JellyfinContextValue = {
   session: JellyfinSession | null
   ready: boolean
@@ -27,7 +27,7 @@ type JellyfinContextValue = {
   unblockIp: (ip: string) => void
 }
 
-const defaults: Preferences = { compact: false, accent: "red", favorites: [], autoplay: true, reduceMotion: false, tvMode: false, playerDeviceName: "Navigateur" }
+const defaults: Preferences = { compact: false, accent: "red", favorites: [], autoplay: true, reduceMotion: false, tvMode: false, cinemaMode: false, playerDeviceName: "Navigateur" }
 const JellyfinContext = createContext<JellyfinContextValue | null>(null)
 
 export function JellyfinProvider({ children }: { children: React.ReactNode }) {
@@ -57,7 +57,8 @@ export function JellyfinProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.dataset.accent = preferences.accent
     document.documentElement.dataset.reduceMotion = preferences.reduceMotion ? "true" : "false"
     document.documentElement.dataset.tvMode = preferences.tvMode ? "true" : "false"
-  }, [preferences.compact, preferences.accent, preferences.reduceMotion, preferences.tvMode])
+    document.documentElement.dataset.cinemaMode = preferences.cinemaMode ? "true" : "false"
+  }, [preferences.compact, preferences.accent, preferences.reduceMotion, preferences.tvMode, preferences.cinemaMode])
 
   useEffect(() => {
     const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection
