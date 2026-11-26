@@ -12,7 +12,7 @@ export default async function ItemPage({
     <AuthGuard>
       <AppHeader />
       <main>
-        <DetailView itemId={id} />
+        <DetailView itemId={id} cinemaConfigured={Boolean(process.env.API_CINEMA_API_KEY)} />
       </main>
     </AuthGuard>
   )
