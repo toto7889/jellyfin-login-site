@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { useSWRConfig } from "swr"
 import { createPortal } from "react-dom"
 import Hls from "hls.js"
-import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackInfo, getTrickplayManifest, getTrickplayTile, reportProgress, streamUrl, subtitleStreamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
+import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackInfo, getTrickplayManifest, getTrickplayTile, reportPlaybackCapabilities, reportPlaybackStarted, reportPlaybackStopped, reportProgress, streamUrl, subtitleStreamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
 import { useJellyfin } from "@/components/jellyfin-provider"
 
 type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; durationTicks?: number; isLive?: boolean; isSeriesEpisode?: boolean; previewMode?: boolean; previewDurationSeconds?: number; isOpen?: boolean; returnHref?: string; onClose: () => void }
@@ -340,6 +340,14 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     let liveStreamUrl: string | null = null
     let hlsInstance: Hls | null = null
     let playbackInfo: Awaited<ReturnType<typeof getPlaybackInfo>> | null = null
+    let playbackReported = false
+    let playbackStopped = false
+    const reportStopped = (playedToCompletion = false) => {
+      if (!playbackReported || playbackStopped) return
+      playbackStopped = true
+      void reportPlaybackStopped(session, itemId, video.currentTime * 10_000_000, playedToCompletion)
+    }
+    const onPageHide = () => reportStopped()
     let compatibilityFallbackStarted = false
     let subtitleNeedsBurnIn = false
     const selectedQuality = quality === "480p" ? { maxStreamingBitrate: 1_800_000, maxWidth: 854, maxHeight: 480 } : quality === "720p" ? { maxStreamingBitrate: 5_000_000, maxWidth: 1280, maxHeight: 720 } : quality === "1080p" ? { maxStreamingBitrate: 10_000_000, maxWidth: 1920, maxHeight: 1080 } : { maxStreamingBitrate: 20_000_000 }
@@ -384,7 +392,8 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     }
     const onWaiting = () => { if (video.currentTime > 0 || playing) setIsBuffering(true) }
     const onPlaying = () => setIsBuffering(false)
-    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setIsBuffering(false); setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); syncResumePosition(false); if (!previewActiveRef.current) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
+    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setIsBuffering(false); setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); if (playbackStopped) { playbackStopped = false; playbackReported = false } if (!previewActiveRef.current && !playbackReported) { playbackReported = true; void reportPlaybackStarted(session, itemId, video.currentTime * 10_000_000, playbackInfo?.PlaySessionId) } syncResumePosition(false); if (!previewActiveRef.current) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
+    const onEnded = () => reportStopped(true)
     const syncResumePosition = (paused: boolean) => {
       if (previewActiveRef.current || isLive || !Number.isFinite(video.currentTime) || (paused && video.currentTime <= 0)) return
       void reportProgress(session, itemId, video.currentTime * 10_000_000, paused).finally(() => {
@@ -417,7 +426,41 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       if (!isLive && !compatibilityFallbackStarted) void startCompatibilityFallback()
       else setError("Le format n’est pas lisible par le navigateur ou le serveur Jellyfin.")
     }
-    video.addEventListener("canplay", onReady); video.addEventListener("playing", onPlaying); video.addEventListener("waiting", onWaiting); video.addEventListener("stalled", onWaiting); video.addEventListener("playing", onPlay); video.addEventListener("pause", onPause); video.addEventListener("timeupdate", onTime); video.addEventListener("durationchange", onTime); video.addEventListener("error", onError)
+    const socketProtocol = session.serverUrl.startsWith("https:") ? "wss:" : "ws:"
+    const socketUrl = new URL(session.serverUrl)
+    socketUrl.protocol = socketProtocol
+    socketUrl.pathname = `${socketUrl.pathname.replace(/\/+$/, "")}/socket`
+    socketUrl.search = ""
+    socketUrl.searchParams.set("api_key", session.accessToken)
+    socketUrl.searchParams.set("deviceId", session.deviceId)
+    const jellyfinSocket = new WebSocket(socketUrl.toString())
+    jellyfinSocket.addEventListener("open", () => {
+      void reportPlaybackCapabilities(session)
+      jellyfinSocket.send(JSON.stringify({ MessageType: "SessionsStart", Data: "10000" }))
+    })
+    jellyfinSocket.addEventListener("message", (event) => {
+      try {
+        const message = JSON.parse(String(event.data)) as { MessageType?: string; Data?: { Name?: string; Command?: string; Arguments?: Record<string, string> } }
+        if (message.MessageType !== "GeneralCommand" || !message.Data) return
+        const command = message.Data.Name ?? message.Data.Command
+        const args = message.Data.Arguments ?? {}
+        if (command === "Play") void video.play().catch(() => undefined)
+        else if (command === "Pause") video.pause()
+        else if (command === "PlayPause") {
+          if (video.paused) void video.play().catch(() => undefined)
+          else video.pause()
+        } else if (command === "Stop") {
+          video.pause()
+          reportStopped()
+        } else if (command === "Seek") {
+          const ticks = Number(args.SeekPositionTicks ?? args.seekPositionTicks ?? args.PositionTicks)
+          if (Number.isFinite(ticks)) video.currentTime = Math.max(0, ticks / 10_000_000)
+        }
+      } catch {
+        // Ignore malformed server messages and keep playback connected.
+      }
+    })
+    video.addEventListener("canplay", onReady); video.addEventListener("playing", onPlaying); video.addEventListener("waiting", onWaiting); video.addEventListener("stalled", onWaiting); video.addEventListener("playing", onPlay); video.addEventListener("pause", onPause); video.addEventListener("ended", onEnded); video.addEventListener("timeupdate", onTime); video.addEventListener("durationchange", onTime); video.addEventListener("error", onError); window.addEventListener("pagehide", onPageHide)
     void (async () => {
       try {
         if (!isLive) {
@@ -486,7 +529,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       }
     })()
     const interval = window.setInterval(() => { if (!previewActiveRef.current && !video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
-    return () => { syncResumePosition(video.paused); cancelled = true; hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
+    return () => { reportStopped(); syncResumePosition(video.paused); cancelled = true; jellyfinSocket.close(); hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); window.removeEventListener("pagehide", onPageHide); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error", "ended"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : event === "ended" ? onEnded : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
   }, [session, itemId, startPositionTicks, durationTicks, retryNonce, isLive, audioIndex, subtitleIndex, quality, portalReady, networkDecision])
 
   const hoverThumbnailIndex = trickplayInfo && hoverSeekTime != null

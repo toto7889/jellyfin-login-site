@@ -4,7 +4,7 @@ import Link from "next/link"
 import { createPortal } from "react-dom"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useCallback, useEffect, useState } from "react"
-import { CalendarDays, Check, ChevronDown, Clock3, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, GitBranch, Cast, Clapperboard, Film, Layers3, Music2, MonitorPlay } from "lucide-react"
+import { CalendarDays, Check, ChevronDown, Clock3, Heart, Home, LogOut, Search, Settings, Tv, X, ShieldCheck, GitBranch, Cast, Clapperboard, Film, Layers3, Music2, MonitorPlay, Activity } from "lucide-react"
 import { useJellyfin } from "@/components/jellyfin-provider"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -90,6 +90,7 @@ function AppHeaderContent() {
                   <Link role="menuitem" href="/genres" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Clapperboard className="size-4" /> Explorer les genres</Link>
                   <Link role="menuitem" href="/cast" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Cast className="size-4" /> Distribution</Link>
                   <Link role="menuitem" href="/securite" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><ShieldCheck className="size-4" /> Sécurité</Link>
+                  <Link role="menuitem" href="/etat-services" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><Activity className="size-4" /> État des services</Link>
                   <Link role="menuitem" href="/releases" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><GitBranch className="size-4" /> Nouveautés</Link>
                   <Link role="menuitem" href="/a-propos" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white"><MonitorPlay className="size-4" /> À propos de JFLX</Link>
                   <div className="px-3 py-3">

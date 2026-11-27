@@ -802,6 +802,69 @@ export async function seekPlaybackSession(
   )
 }
 
+export async function reportPlaybackCapabilities(session: JellyfinSession): Promise<void> {
+  try {
+    await apiFetch(session, "/Sessions/Capabilities/Full", {
+      method: "POST",
+      body: JSON.stringify({
+        PlayableMediaTypes: ["Audio", "Video"],
+        SupportedCommands: ["Play", "PlayPause", "Pause", "Stop", "Seek"],
+        SupportsMediaControl: true,
+        SupportsContentUploading: false,
+        SupportsPersistentIdentifier: true,
+        SupportsSync: false,
+      }),
+    })
+  } catch {
+    // Session capabilities are best-effort on servers with restricted APIs.
+  }
+}
+
+export async function reportPlaybackStarted(
+  session: JellyfinSession,
+  itemId: string,
+  positionTicks: number,
+  playSessionId?: string,
+): Promise<void> {
+  try {
+    await apiFetch(session, "/Sessions/Playing", {
+      method: "POST",
+      body: JSON.stringify({
+        ItemId: itemId,
+        PositionTicks: Math.max(0, Math.round(positionTicks)),
+        CanSeek: true,
+        IsPaused: false,
+        PlayMethod: "DirectPlay",
+        PlaySessionId: playSessionId,
+      }),
+    })
+  } catch {
+    // Jellyfin playback registration is best-effort.
+  }
+}
+
+export async function reportPlaybackStopped(
+  session: JellyfinSession,
+  itemId: string,
+  positionTicks: number,
+  playedToCompletion = false,
+): Promise<void> {
+  try {
+    await apiFetch(session, "/Sessions/Playing/Stopped", {
+      method: "POST",
+      keepalive: true,
+      body: JSON.stringify({
+        ItemId: itemId,
+        PositionTicks: Math.max(0, Math.round(positionTicks)),
+        PlayedToCompletion: playedToCompletion,
+        Failed: false,
+      }),
+    })
+  } catch {
+    // Closing the page can interrupt playback reporting.
+  }
+}
+
 export async function reportProgress(
   session: JellyfinSession,
   itemId: string,
