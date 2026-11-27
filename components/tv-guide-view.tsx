@@ -129,7 +129,7 @@ function TvGuideContent({ session }: { session: JellyfinSession }) {
       </div>}
       <div className="mt-6 flex justify-end"><Link href="/tv" className="inline-flex items-center gap-2 text-sm text-white/55 transition hover:text-white">Explorer le hub TV<ChevronRight className="size-4" /></Link></div>
       {data?.scheduleUnavailable ? <p role="status" className="mt-4 rounded-xl border border-amber-300/15 bg-amber-300/[.06] px-4 py-3 text-sm text-amber-100/80">Le serveur n’a pas répondu pour le guide des horaires. Les chaînes et les programmes en cours restent accessibles. <button type="button" onClick={() => void mutate()} className="ml-1 font-semibold underline underline-offset-2">Réessayer</button></p> : null}
-      {playing ? <VideoPlayer session={session} itemId={playing.id} title={playing.name} subtitle={playing.program} isLive onClose={() => setPlaying(null)} /> : null}
+      {playing ? <VideoPlayer session={session} itemId={playing.id} title={playing.name} subtitle={playing.program} isLive returnHref="/guide-tv" onClose={() => setPlaying(null)} /> : null}
     </main>
   </div>
 }

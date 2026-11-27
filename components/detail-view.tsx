@@ -261,6 +261,7 @@ function DetailContent({
           previewDurationSeconds={cachedPlayback.previewDurationSeconds}
           isSeriesEpisode={isSeries && !cachedPlayback.previewMode}
           isOpen={Boolean(playing)}
+          returnHref={`/item/${encodeURIComponent(itemId)}`}
           onClose={() => setPlaying(null)}
         />
       ) : null}

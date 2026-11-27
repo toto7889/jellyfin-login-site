@@ -52,6 +52,6 @@ export function TvProgramView({ programId }: { programId: string }) {
         </div>
       </article>}
     </main>
-    {playing && channelId ? <VideoPlayer session={session} itemId={channelId} title={channelName} subtitle={program?.Name} isLive onClose={() => setPlaying(false)} /> : null}
+    {playing && channelId ? <VideoPlayer session={session} itemId={channelId} title={channelName} subtitle={program?.Name} isLive returnHref={`/guide-tv/program/${encodeURIComponent(programId)}`} onClose={() => setPlaying(false)} /> : null}
   </div>
 }

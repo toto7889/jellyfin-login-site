@@ -7,14 +7,14 @@ import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { useSWRConfig } from "swr"
 import { createPortal } from "react-dom"
 import Hls from "hls.js"
-import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackInfo, getTrickplayManifest, getTrickplayTile, reportProgress, streamUrl, subtitleStreamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
+import { closeLiveTvStream, directStreamUrl, getLiveTvStreamUrl, getPlaybackInfo, getTrickplayManifest, getTrickplayTile, reportPlaybackCapabilities, reportPlaybackStarted, reportPlaybackStopped, reportProgress, streamUrl, subtitleStreamUrl, type JellyfinMediaStream, type JellyfinSession, type JellyfinTrickplayInfo } from "@/lib/jellyfin"
 import { useJellyfin } from "@/components/jellyfin-provider"
 
-type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; durationTicks?: number; isLive?: boolean; isSeriesEpisode?: boolean; previewMode?: boolean; previewDurationSeconds?: number; isOpen?: boolean; onClose: () => void }
+type Props = { session: JellyfinSession; itemId: string; title: string; subtitle?: string; language?: string; backdropUrl?: string | null; startPositionTicks?: number; durationTicks?: number; isLive?: boolean; isSeriesEpisode?: boolean; previewMode?: boolean; previewDurationSeconds?: number; isOpen?: boolean; returnHref?: string; onClose: () => void }
 
 const TEXT_SUBTITLE_CODECS = new Set(["ass", "ssa", "subrip", "srt", "webvtt", "vtt", "mov_text", "ttml"])
 
-export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, durationTicks, isLive = false, isSeriesEpisode = false, previewMode = false, previewDurationSeconds, isOpen = true, onClose }: Props) {
+export function VideoPlayer({ session, itemId, title, subtitle, language, backdropUrl, startPositionTicks, durationTicks, isLive = false, isSeriesEpisode = false, previewMode = false, previewDurationSeconds, isOpen = true, returnHref = `/item/${encodeURIComponent(itemId)}`, onClose }: Props) {
   const { preferences, currentIp, blockIp, serverHealth } = useJellyfin()
   const { mutate } = useSWRConfig()
   const router = useRouter()
@@ -48,6 +48,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const previewActiveRef = useRef(previewMode)
   const previewLimitReachedRef = useRef(false)
   const onCloseRef = useRef(onClose)
+  const stopPlaybackRef = useRef<() => void>(() => {})
   previewActiveRef.current = previewActive
   onCloseRef.current = onClose
   const [logs, setLogs] = useState<string[]>([])
@@ -63,7 +64,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const [batteryCharging, setBatteryCharging] = useState<boolean | null>(null)
   const [showBatteryWarning, setShowBatteryWarning] = useState(false)
   const [showExitConfirmation, setShowExitConfirmation] = useState(false)
-  const [exitDestination, setExitDestination] = useState("/")
+  const [exitDestination, setExitDestination] = useState(returnHref)
   const [trickplayInfo, setTrickplayInfo] = useState<JellyfinTrickplayInfo | null>(null)
   const [trickplayTileObjectUrl, setTrickplayTileObjectUrl] = useState<string | null>(null)
   const [hoverSeekTime, setHoverSeekTime] = useState<number | null>(null)
@@ -147,8 +148,8 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   }, [networkDecision, networkProfile, previewMode, serverHealth])
 
   function revealControls() { setControls(true); if (hideTimer.current) window.clearTimeout(hideTimer.current); hideTimer.current = window.setTimeout(() => { if (playing) setControls(false) }, 2800) }
-  function requestExit(destination = "/") { setExitDestination(destination); setShowExitConfirmation(true); revealControls() }
-  function confirmExit() { setShowExitConfirmation(false); router.push(exitDestination); onClose() }
+  function requestExit(destination = returnHref) { setExitDestination(destination); setShowExitConfirmation(true); revealControls() }
+  function confirmExit() { stopPlaybackRef.current(); setShowExitConfirmation(false); router.push(exitDestination); onClose() }
   function exitCinemaMode() { setTvMode(false); if (document.fullscreenElement) void document.exitFullscreen(); revealControls() }
   function toggleCinemaMode() { if (tvMode) exitCinemaMode(); else { setTvMode(true); void shellRef.current?.requestFullscreen() } }
   function togglePlay() { const video = videoRef.current; if (!video) return; if (video.paused) { if (batteryGate.current.blocked) { setShowBatteryWarning(true); return } void video.play() } else video.pause(); revealControls() }
@@ -181,7 +182,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       if (!video) return
       if (event.data?.type === "play") { if (batteryGate.current.blocked) setShowBatteryWarning(true); else void video.play() }
       if (event.data?.type === "pause") video.pause()
-      if (event.data?.type === "stop") { setExitDestination("/"); setShowExitConfirmation(true) }
+      if (event.data?.type === "stop") { setExitDestination(returnHref); setShowExitConfirmation(true) }
       if (event.data?.type === "seek") video.currentTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + event.data.seconds))
     }
     return () => channel.close()
@@ -340,6 +341,19 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     let liveStreamUrl: string | null = null
     let hlsInstance: Hls | null = null
     let playbackInfo: Awaited<ReturnType<typeof getPlaybackInfo>> | null = null
+    let playbackReported = false
+    let playbackStopped = false
+    let playbackReportQueue: Promise<void> = Promise.resolve()
+    const reportStopped = (playedToCompletion = false) => {
+      if (!playbackReported || playbackStopped) return
+      playbackStopped = true
+      const positionTicks = video.currentTime * 10_000_000
+      const playSessionId = playbackInfo?.PlaySessionId
+      const mediaSourceId = playbackInfo?.MediaSources?.find((source) => source.Id)?.Id
+      playbackReportQueue = playbackReportQueue.then(() => reportPlaybackStopped(session, itemId, positionTicks, playSessionId, mediaSourceId, playedToCompletion))
+    }
+    stopPlaybackRef.current = reportStopped
+    const onPageHide = () => reportStopped()
     let compatibilityFallbackStarted = false
     let subtitleNeedsBurnIn = false
     const selectedQuality = quality === "480p" ? { maxStreamingBitrate: 1_800_000, maxWidth: 854, maxHeight: 480 } : quality === "720p" ? { maxStreamingBitrate: 5_000_000, maxWidth: 1280, maxHeight: 720 } : quality === "1080p" ? { maxStreamingBitrate: 10_000_000, maxWidth: 1920, maxHeight: 1080 } : { maxStreamingBitrate: 20_000_000 }
@@ -384,10 +398,13 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     }
     const onWaiting = () => { if (video.currentTime > 0 || playing) setIsBuffering(true) }
     const onPlaying = () => setIsBuffering(false)
-    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setIsBuffering(false); setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); syncResumePosition(false); if (!previewActiveRef.current) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
+    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setIsBuffering(false); setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); if (playbackStopped) { playbackStopped = false; playbackReported = false } if (!previewActiveRef.current && !playbackReported) { playbackReported = true; const positionTicks = video.currentTime * 10_000_000; playbackReportQueue = playbackReportQueue.then(() => reportPlaybackStarted(session, itemId, positionTicks, playbackInfo?.PlaySessionId)) } syncResumePosition(false); if (!previewActiveRef.current) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
+    const onEnded = () => reportStopped(true)
     const syncResumePosition = (paused: boolean) => {
       if (previewActiveRef.current || isLive || !Number.isFinite(video.currentTime) || (paused && video.currentTime <= 0)) return
-      void reportProgress(session, itemId, video.currentTime * 10_000_000, paused).finally(() => {
+      const positionTicks = video.currentTime * 10_000_000
+      playbackReportQueue = playbackReportQueue.then(() => reportProgress(session, itemId, positionTicks, paused))
+      void playbackReportQueue.finally(() => {
         void mutate(["home", session.userId])
         void mutate(["resume", session.userId])
       })
@@ -417,7 +434,41 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
       if (!isLive && !compatibilityFallbackStarted) void startCompatibilityFallback()
       else setError("Le format n’est pas lisible par le navigateur ou le serveur Jellyfin.")
     }
-    video.addEventListener("canplay", onReady); video.addEventListener("playing", onPlaying); video.addEventListener("waiting", onWaiting); video.addEventListener("stalled", onWaiting); video.addEventListener("playing", onPlay); video.addEventListener("pause", onPause); video.addEventListener("timeupdate", onTime); video.addEventListener("durationchange", onTime); video.addEventListener("error", onError)
+    const socketProtocol = session.serverUrl.startsWith("https:") ? "wss:" : "ws:"
+    const socketUrl = new URL(session.serverUrl)
+    socketUrl.protocol = socketProtocol
+    socketUrl.pathname = `${socketUrl.pathname.replace(/\/+$/, "")}/socket`
+    socketUrl.search = ""
+    socketUrl.searchParams.set("api_key", session.accessToken)
+    socketUrl.searchParams.set("deviceId", session.deviceId)
+    const jellyfinSocket = new WebSocket(socketUrl.toString())
+    jellyfinSocket.addEventListener("open", () => {
+      void reportPlaybackCapabilities(session)
+      jellyfinSocket.send(JSON.stringify({ MessageType: "SessionsStart", Data: "10000" }))
+    })
+    jellyfinSocket.addEventListener("message", (event) => {
+      try {
+        const message = JSON.parse(String(event.data)) as { MessageType?: string; Data?: { Name?: string; Command?: string; Arguments?: Record<string, string> } }
+        if (message.MessageType !== "GeneralCommand" || !message.Data) return
+        const command = message.Data.Name ?? message.Data.Command
+        const args = message.Data.Arguments ?? {}
+        if (command === "Play") void video.play().catch(() => undefined)
+        else if (command === "Pause") video.pause()
+        else if (command === "PlayPause") {
+          if (video.paused) void video.play().catch(() => undefined)
+          else video.pause()
+        } else if (command === "Stop") {
+          video.pause()
+          reportStopped()
+        } else if (command === "Seek") {
+          const ticks = Number(args.SeekPositionTicks ?? args.seekPositionTicks ?? args.PositionTicks)
+          if (Number.isFinite(ticks)) video.currentTime = Math.max(0, ticks / 10_000_000)
+        }
+      } catch {
+        // Ignore malformed server messages and keep playback connected.
+      }
+    })
+    video.addEventListener("canplay", onReady); video.addEventListener("playing", onPlaying); video.addEventListener("waiting", onWaiting); video.addEventListener("stalled", onWaiting); video.addEventListener("playing", onPlay); video.addEventListener("pause", onPause); video.addEventListener("ended", onEnded); video.addEventListener("timeupdate", onTime); video.addEventListener("durationchange", onTime); video.addEventListener("error", onError); window.addEventListener("pagehide", onPageHide)
     void (async () => {
       try {
         if (!isLive) {
@@ -485,8 +536,8 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
         setError(streamError instanceof Error ? streamError.message : "Impossible d’ouvrir ce flux Jellyfin.")
       }
     })()
-    const interval = window.setInterval(() => { if (!previewActiveRef.current && !video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
-    return () => { syncResumePosition(video.paused); cancelled = true; hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
+    const interval = window.setInterval(() => { if (!previewActiveRef.current && !playbackStopped && !video.paused && video.currentTime > 0) { const positionTicks = video.currentTime * 10_000_000; playbackReportQueue = playbackReportQueue.then(() => reportProgress(session, itemId, positionTicks)) } }, 10000)
+    return () => { if (playbackReported) reportStopped(); else syncResumePosition(video.paused); if (stopPlaybackRef.current === reportStopped) stopPlaybackRef.current = () => {}; cancelled = true; jellyfinSocket.close(); hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); window.removeEventListener("pagehide", onPageHide); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error", "ended"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : event === "ended" ? onEnded : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
   }, [session, itemId, startPositionTicks, durationTicks, retryNonce, isLive, audioIndex, subtitleIndex, quality, portalReady, networkDecision])
 
   const hoverThumbnailIndex = trickplayInfo && hoverSeekTime != null
@@ -534,7 +585,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   if (!portalReady) return null
   return createPortal(
     <div ref={shellRef} onMouseMove={revealControls} onTouchStart={revealControls} className={`${isOpen ? "fixed" : "hidden"} inset-0 z-50 flex flex-col bg-black text-white ${tvMode ? "cursor-none" : ""} animate-in fade-in zoom-in-95 duration-500`} role="dialog" aria-label={`Lecteur : ${title}`}>
-    <div className={`absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/85 to-transparent px-5 pb-14 pt-5 transition-opacity duration-300 ${controls ? "opacity-100" : "pointer-events-none opacity-0"}`}><button type="button" onClick={() => requestExit("/")} className="flex items-center gap-2 text-sm font-medium text-white/85 hover:text-white"><ChevronLeft className="size-6" /> Retour au catalogue</button><div className="text-center">{isLive ? <span className="mx-auto mb-1 inline-flex items-center gap-2 rounded-full bg-[#e50914] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.16em]"><span className="size-1.5 animate-pulse rounded-full bg-white" />EN DIRECT</span> : null}<h2 className="font-semibold">{title}</h2>{subtitle ? <p className="text-xs text-white/55">{subtitle}</p> : null}{language ? <p className="text-xs text-cyan-200/80">Langue : {language}</p> : null}</div><div className="flex items-center gap-3"><button type="button" onClick={toggleCinemaMode} aria-pressed={tvMode} className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">{tvMode ? "Quitter le mode cinéma" : "Mode cinéma"}</button><button type="button" onClick={() => setShowPages((value) => !value)} aria-expanded={showPages} aria-label="Ouvrir la navigation des pages" className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">Pages</button><button type="button" onClick={() => setShowLogs((value) => !value)} className="flex items-center gap-2 text-xs text-white/70 hover:text-white" aria-label="Afficher les logs"><Settings2 className="size-5" /> Logs</button></div></div>
+    <div className={`absolute inset-x-0 top-0 z-20 flex items-start justify-between bg-gradient-to-b from-black/85 to-transparent px-5 pb-14 pt-5 transition-opacity duration-300 ${controls ? "opacity-100" : "pointer-events-none opacity-0"}`}><button type="button" onClick={() => requestExit()} className="flex items-center gap-2 text-sm font-medium text-white/85 hover:text-white"><ChevronLeft className="size-6" /> Retour au catalogue</button><div className="text-center">{isLive ? <span className="mx-auto mb-1 inline-flex items-center gap-2 rounded-full bg-[#e50914] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.16em]"><span className="size-1.5 animate-pulse rounded-full bg-white" />EN DIRECT</span> : null}<h2 className="font-semibold">{title}</h2>{subtitle ? <p className="text-xs text-white/55">{subtitle}</p> : null}{language ? <p className="text-xs text-cyan-200/80">Langue : {language}</p> : null}</div><div className="flex items-center gap-3"><button type="button" onClick={toggleCinemaMode} aria-pressed={tvMode} className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">{tvMode ? "Quitter le mode cinéma" : "Mode cinéma"}</button><button type="button" onClick={() => setShowPages((value) => !value)} aria-expanded={showPages} aria-label="Ouvrir la navigation des pages" className="rounded-full border border-white/20 px-3 py-2 text-xs text-white/80 hover:bg-white/10">Pages</button><button type="button" onClick={() => setShowLogs((value) => !value)} className="flex items-center gap-2 text-xs text-white/70 hover:text-white" aria-label="Afficher les logs"><Settings2 className="size-5" /> Logs</button></div></div>
     {showPages ? <nav aria-label="Navigation principale" className="absolute right-5 top-20 z-40 grid w-56 gap-1 rounded-2xl border border-white/15 bg-[#111]/95 p-2 shadow-2xl backdrop-blur-xl">{[{ href: "/", label: "Accueil", icon: <Home className="size-4" /> }, { href: "/tv", label: "Hub TV", icon: <Tv className="size-4" /> }, { href: "/guide-tv", label: "Guide TV", icon: <Tv className="size-4" /> }, { href: "/search", label: "Recherche", icon: <Search className="size-4" /> }, { href: "/favorites", label: "Favoris", icon: <Heart className="size-4" /> }, { href: "/settings", label: "Paramètres", icon: <Settings2 className="size-4" /> }, { href: "/genres", label: "Genres", icon: <Play className="size-4" /> }, { href: "/cast", label: "Distribution", icon: <Play className="size-4" /> }, { href: "/verification", label: "Vérification", icon: <Settings2 className="size-4" /> }, { href: "/securite", label: "Sécurité", icon: <Settings2 className="size-4" /> }, { href: "/releases", label: "Nouveautés", icon: <Play className="size-4" /> }, { href: "/ip", label: "Mon IP", icon: <Settings2 className="size-4" /> }, { href: "/admin/ip", label: "Administration", icon: <Settings2 className="size-4" /> }].map((page) => <Link key={page.href} href={page.href} onClick={(event) => { event.preventDefault(); requestExit(page.href) }} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/75 transition hover:bg-white/10 hover:text-white">{page.icon}{page.label}</Link>)}</nav> : null}
     <div className="relative flex min-h-0 flex-1 items-center justify-center" onDoubleClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void shellRef.current?.requestFullscreen() }}>
       <video ref={videoRef} playsInline className={`h-full w-full object-contain transition-opacity duration-500 ${ready ? "opacity-100" : "opacity-0"}`} onClick={togglePlay}>

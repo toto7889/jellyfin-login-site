@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
-import { authenticate, authenticateWithQuickConnect, checkServerHealth, type JellyfinSession, type ServerHealth } from "@/lib/jellyfin"
+import { authenticate, authenticateWithQuickConnect, checkServerHealth, revokeJellyfinSession, type JellyfinSession, type ServerHealth } from "@/lib/jellyfin"
 
 const STORAGE_KEY = "jf_session"
 const PREFS_KEY = "jf_preferences"
@@ -103,9 +103,30 @@ export function JellyfinProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
+    if (session) revokeJellyfinSession(session)
     window.localStorage.removeItem(STORAGE_KEY)
     setSession(null)
-  }, [])
+  }, [session])
+
+  useEffect(() => {
+    if (!ready || !session) return
+
+    const revokeOnExit = () => {
+      revokeJellyfinSession(session)
+      window.localStorage.removeItem(STORAGE_KEY)
+    }
+    const handleUnauthorized = () => {
+      logout()
+      window.location.assign("/errors/401")
+    }
+
+    window.addEventListener("pagehide", revokeOnExit)
+    window.addEventListener("jellyfin:unauthorized", handleUnauthorized)
+    return () => {
+      window.removeEventListener("pagehide", revokeOnExit)
+      window.removeEventListener("jellyfin:unauthorized", handleUnauthorized)
+    }
+  }, [ready, session, logout])
 
   const updatePreferences = useCallback((changes: Partial<Preferences>) => {
     setPreferences((current) => {

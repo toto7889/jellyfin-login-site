@@ -168,7 +168,7 @@ function TvContent({ session }: { session: JellyfinSession }) {
       })}</div> : <p className="rounded-2xl border border-dashed border-white/15 py-12 text-center text-sm text-white/50">Aucune chaîne ne correspond à cette recherche.</p>}
     </section>
     <div className="mt-8 flex justify-center"><Link href="/guide-tv" className="inline-flex min-h-12 items-center gap-2 rounded-full border border-white/15 px-6 text-sm text-white/75 transition hover:bg-white/[.06] hover:text-white">Afficher la grille complète des programmes<ChevronRight className="size-4" /></Link></div>
-    {playing ? <VideoPlayer session={session} itemId={playing.id} title={playing.title} subtitle={playing.subtitle} isLive onClose={() => setPlaying(null)} /> : null}
+    {playing ? <VideoPlayer session={session} itemId={playing.id} title={playing.title} subtitle={playing.subtitle} isLive returnHref="/tv" onClose={() => setPlaying(null)} /> : null}
   </div>
 }
 
