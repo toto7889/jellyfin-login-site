@@ -48,6 +48,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
   const previewActiveRef = useRef(previewMode)
   const previewLimitReachedRef = useRef(false)
   const onCloseRef = useRef(onClose)
+  const stopPlaybackRef = useRef<() => void>(() => {})
   previewActiveRef.current = previewActive
   onCloseRef.current = onClose
   const [logs, setLogs] = useState<string[]>([])
@@ -148,7 +149,7 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
 
   function revealControls() { setControls(true); if (hideTimer.current) window.clearTimeout(hideTimer.current); hideTimer.current = window.setTimeout(() => { if (playing) setControls(false) }, 2800) }
   function requestExit(destination = returnHref) { setExitDestination(destination); setShowExitConfirmation(true); revealControls() }
-  function confirmExit() { setShowExitConfirmation(false); router.push(exitDestination); onClose() }
+  function confirmExit() { stopPlaybackRef.current(); setShowExitConfirmation(false); router.push(exitDestination); onClose() }
   function exitCinemaMode() { setTvMode(false); if (document.fullscreenElement) void document.exitFullscreen(); revealControls() }
   function toggleCinemaMode() { if (tvMode) exitCinemaMode(); else { setTvMode(true); void shellRef.current?.requestFullscreen() } }
   function togglePlay() { const video = videoRef.current; if (!video) return; if (video.paused) { if (batteryGate.current.blocked) { setShowBatteryWarning(true); return } void video.play() } else video.pause(); revealControls() }
@@ -342,11 +343,16 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     let playbackInfo: Awaited<ReturnType<typeof getPlaybackInfo>> | null = null
     let playbackReported = false
     let playbackStopped = false
+    let playbackReportQueue: Promise<void> = Promise.resolve()
     const reportStopped = (playedToCompletion = false) => {
       if (!playbackReported || playbackStopped) return
       playbackStopped = true
-      void reportPlaybackStopped(session, itemId, video.currentTime * 10_000_000, playedToCompletion)
+      const positionTicks = video.currentTime * 10_000_000
+      const playSessionId = playbackInfo?.PlaySessionId
+      const mediaSourceId = playbackInfo?.MediaSources?.find((source) => source.Id)?.Id
+      playbackReportQueue = playbackReportQueue.then(() => reportPlaybackStopped(session, itemId, positionTicks, playSessionId, mediaSourceId, playedToCompletion))
     }
+    stopPlaybackRef.current = reportStopped
     const onPageHide = () => reportStopped()
     let compatibilityFallbackStarted = false
     let subtitleNeedsBurnIn = false
@@ -392,11 +398,13 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
     }
     const onWaiting = () => { if (video.currentTime > 0 || playing) setIsBuffering(true) }
     const onPlaying = () => setIsBuffering(false)
-    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setIsBuffering(false); setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); if (playbackStopped) { playbackStopped = false; playbackReported = false } if (!previewActiveRef.current && !playbackReported) { playbackReported = true; void reportPlaybackStarted(session, itemId, video.currentTime * 10_000_000, playbackInfo?.PlaySessionId) } syncResumePosition(false); if (!previewActiveRef.current) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
+    const onPlay = () => { if (batteryGate.current.blocked) { video.pause(); setShowBatteryWarning(true); return } setIsBuffering(false); setPlaying(true); setIdleSeconds(0); setSecurityNotice(false); if (playbackStopped) { playbackStopped = false; playbackReported = false } if (!previewActiveRef.current && !playbackReported) { playbackReported = true; const positionTicks = video.currentTime * 10_000_000; playbackReportQueue = playbackReportQueue.then(() => reportPlaybackStarted(session, itemId, positionTicks, playbackInfo?.PlaySessionId)) } syncResumePosition(false); if (!previewActiveRef.current) { const params = new URLSearchParams({ status: "encours", lang: language || "auto", percentage: duration ? String(Math.round((video.currentTime / duration) * 100)) : "0" }); window.history.replaceState(null, "", `/lecteur/item/${itemId}/play?${params.toString()}`) } revealControls() }
     const onEnded = () => reportStopped(true)
     const syncResumePosition = (paused: boolean) => {
       if (previewActiveRef.current || isLive || !Number.isFinite(video.currentTime) || (paused && video.currentTime <= 0)) return
-      void reportProgress(session, itemId, video.currentTime * 10_000_000, paused).finally(() => {
+      const positionTicks = video.currentTime * 10_000_000
+      playbackReportQueue = playbackReportQueue.then(() => reportProgress(session, itemId, positionTicks, paused))
+      void playbackReportQueue.finally(() => {
         void mutate(["home", session.userId])
         void mutate(["resume", session.userId])
       })
@@ -528,8 +536,8 @@ export function VideoPlayer({ session, itemId, title, subtitle, language, backdr
         setError(streamError instanceof Error ? streamError.message : "Impossible d’ouvrir ce flux Jellyfin.")
       }
     })()
-    const interval = window.setInterval(() => { if (!previewActiveRef.current && !video.paused && video.currentTime > 0) void reportProgress(session, itemId, video.currentTime * 10_000_000) }, 10000)
-    return () => { reportStopped(); syncResumePosition(video.paused); cancelled = true; jellyfinSocket.close(); hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); window.removeEventListener("pagehide", onPageHide); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error", "ended"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : event === "ended" ? onEnded : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
+    const interval = window.setInterval(() => { if (!previewActiveRef.current && !playbackStopped && !video.paused && video.currentTime > 0) { const positionTicks = video.currentTime * 10_000_000; playbackReportQueue = playbackReportQueue.then(() => reportProgress(session, itemId, positionTicks)) } }, 10000)
+    return () => { if (playbackReported) reportStopped(); else syncResumePosition(video.paused); if (stopPlaybackRef.current === reportStopped) stopPlaybackRef.current = () => {}; cancelled = true; jellyfinSocket.close(); hlsInstance?.destroy(); if (isLive && liveStreamUrl) void closeLiveTvStream(session, liveStreamUrl).catch(() => undefined); window.clearInterval(interval); if (hideTimer.current) window.clearTimeout(hideTimer.current); if (seekFeedbackTimer.current) window.clearTimeout(seekFeedbackTimer.current); window.removeEventListener("pagehide", onPageHide); ["canplay", "playing", "waiting", "stalled", "pause", "timeupdate", "durationchange", "error", "ended"].forEach((event) => video.removeEventListener(event, event === "canplay" ? onReady : event === "playing" ? onPlay : event === "waiting" || event === "stalled" ? onWaiting : event === "pause" ? onPause : event === "timeupdate" || event === "durationchange" ? onTime : event === "ended" ? onEnded : onError)); video.removeEventListener("playing", onPlaying); video.removeAttribute("src"); video.load() }
   }, [session, itemId, startPositionTicks, durationTicks, retryNonce, isLive, audioIndex, subtitleIndex, quality, portalReady, networkDecision])
 
   const hoverThumbnailIndex = trickplayInfo && hoverSeekTime != null

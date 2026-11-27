@@ -847,6 +847,8 @@ export async function reportPlaybackStopped(
   session: JellyfinSession,
   itemId: string,
   positionTicks: number,
+  playSessionId?: string,
+  mediaSourceId?: string,
   playedToCompletion = false,
 ): Promise<void> {
   try {
@@ -856,6 +858,8 @@ export async function reportPlaybackStopped(
       body: JSON.stringify({
         ItemId: itemId,
         PositionTicks: Math.max(0, Math.round(positionTicks)),
+        PlaySessionId: playSessionId,
+        MediaSourceId: mediaSourceId,
         PlayedToCompletion: playedToCompletion,
         Failed: false,
       }),
