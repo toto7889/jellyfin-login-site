@@ -127,6 +127,15 @@ function buildAuthHeader(deviceId: string, token?: string): string {
   return parts.join(", ")
 }
 
+export function revokeJellyfinSession(session: JellyfinSession): void {
+  void fetch(`${session.serverUrl}/Sessions/Logout`, {
+    method: "POST",
+    headers: { Authorization: buildAuthHeader(session.deviceId, session.accessToken) },
+    cache: "no-store",
+    keepalive: true,
+  }).catch(() => undefined)
+}
+
 export function getDeviceId(): string {
   if (typeof window === "undefined") return "server"
   const KEY = "jf_device_id"
@@ -151,6 +160,9 @@ async function apiFetch<T>(
       ...(init?.headers ?? {}),
     },
   })
+  if (res.status === 401 && typeof window !== "undefined") {
+    window.dispatchEvent(new Event("jellyfin:unauthorized"))
+  }
   if (!res.ok) {
     throw new Error(`Erreur ${res.status}: ${res.statusText}`)
   }

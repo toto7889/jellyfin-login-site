@@ -47,6 +47,6 @@ export function MusicVideoHubView() {
         </article>
       })}</div> : null}
     </section>
-    {current ? <VideoPlayer session={session} itemId={current.Id} title={current.Name} subtitle={current.Artists?.join(", ") || current.AlbumArtist} backdropUrl={backdropImage(session.serverUrl, current, 1600)} startPositionTicks={current.UserData?.PlaybackPositionTicks ?? 0} durationTicks={current.RunTimeTicks} language={current.OriginalLanguage ?? current.Language} onClose={() => setCurrent(null)} /> : null}
+    {current ? <VideoPlayer session={session} itemId={current.Id} title={current.Name} subtitle={current.Artists?.join(", ") || current.AlbumArtist} backdropUrl={backdropImage(session.serverUrl, current, 1600)} startPositionTicks={current.UserData?.PlaybackPositionTicks ?? 0} durationTicks={current.RunTimeTicks} language={current.OriginalLanguage ?? current.Language} returnHref="/music-videos" onClose={() => setCurrent(null)} /> : null}
   </main>
 }
